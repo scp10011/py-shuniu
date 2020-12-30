@@ -28,7 +28,7 @@ def get_requirements():
 
 
 setup(
-    name="fishnet_core",
+    name="shuniu",
     version=get_version(),
     url="http://gitlab/scp10011/py-shuniu",
     description="shuniu python client",
