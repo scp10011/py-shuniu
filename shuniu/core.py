@@ -304,6 +304,15 @@ class shuniuRPC:
             raise ValueError(
                 "Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
 
+    def router(self, channel):
+        with self.__api_call__("POST", "/router", data={"dst": list(channel)}) as r:
+            if r.ok:
+                data = r.json()
+                if data["code"] == 0:
+                    return data["queue"]
+            raise ValueError(
+                "Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
+
 
 def urlparse(uri) -> Dict:
     obj = urllib.parse.urlparse(uri)
