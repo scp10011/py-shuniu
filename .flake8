@@ -1,0 +1,14 @@
+[flake8]
+ignore = W292 C901 W503 E203
+exclude =
+    *migrations*,
+    # python related
+    *.pyc,
+    .git,
+    __pycache__,
+max-line-length=150
+max-complexity=12
+format=pylint
+show_source = True
+statistics = True
+count = True
