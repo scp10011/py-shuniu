@@ -362,14 +362,14 @@ class Shuniu:
         while 1:
             kwargs, task_id, src, task_type = queue.get()
             worker_class = self.task_registered_map[task_type]
-            worker_class.mock(task_id=task_id, src=src)
+            worker_class.mock(task_id=task_id, src=src, wid=wid)
             error_type = None
             for i in range(worker_class.retry):
                 try:
                     worker_class.run(*kwargs["args"], **kwargs["kwargs"])
                     break
                 except worker_class.autoretry_for as e:
-                    worker_class.logger(wid).exception(f"Resumable retry {i + 1}/{worker_class.retry} time")
+                    worker_class.logger.exception(f"Resumable retry {i + 1}/{worker_class.retry} time")
                     error_type = e
                     continue
                 except Exception as e:
@@ -429,6 +429,7 @@ class Shuniu:
 
 class Task:
     task_id = None
+    wid = None
     src = None
 
     def __init__(self, app: Shuniu, name: str, func: type(abs), conf: Dict, bind: bool = False,
@@ -444,12 +445,14 @@ class Task:
     def retry(self):
         return self.conf["max_retries"]
 
-    def logger(self, wid: int) -> logging.Logger:
-        return logging.getLogger(f"Shuniu-Task[{self.name}]-{wid}")
+    @property
+    def logger(self) -> logging.Logger:
+        return logging.getLogger(f"Shuniu-Task[{self.name}]-{self.wid}")
 
-    def mock(self, task_id, src):
+    def mock(self, task_id, src, wid):
         self.task_id = task_id
         self.src = src
+        self.wid = wid
 
     def apply_async(self, *args, **kwargs) -> str:
         return self.app.rpc.apply_async(self.name, *args, **kwargs)
