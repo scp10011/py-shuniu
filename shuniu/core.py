@@ -474,7 +474,13 @@ class AsyncResult:
         self.task_id = task_id
 
     def get(self) -> Any:
-        self.rpc.get(self.task_id)
+        result = self.rpc.get(self.task_id)
+        go_back = 1
+        while not result:
+            time.sleep(go_back)
+            result = self.rpc.get(self.task_id)
+            go_back = 64 if go_back == 64 else go_back * 2
+        return result
 
     def revoke(self) -> None:
         self.rpc.revoke(self.task_id)
