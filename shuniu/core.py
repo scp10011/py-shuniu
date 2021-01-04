@@ -4,6 +4,7 @@ import os
 import re
 import bz2
 import gzip
+import sys
 import zlib
 import time
 import uuid
@@ -295,6 +296,19 @@ class shuniuRPC:
                 raise ValueError(
                     "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)) from None
 
+    def set(self, task_id: str, src: str, payload: Any, serialization=None, compression=None):
+        payload, payload_type = encode_payload(
+            payload,
+            coding=serialization or self.conf["serialization"],
+            compression=compression or self.conf["compression"])
+        data = {"src": src, "payload": payload, "type": payload_type}
+        with self.__api_call__("POST", f"/task/result/{task_id}", data=data) as r:
+            if r.ok and r.json().get("code") == 0:
+                return
+            else:
+                raise ValueError(
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)) from None
+
     def get(self, task_id: str):
         with self.__api_call__("GET", f"/task/result/{task_id}") as r:
             if r.ok:
@@ -403,21 +417,31 @@ class Shuniu:
             kwargs, task_id, src, task_type = queue.get()
             worker_class = self.task_registered_map[task_type]
             worker_class.mock(task_id=task_id, src=src, wid=wid)
-            error_type = None
+            exc_type, exc_value, exc_traceback = None, None, None
             for i in range(worker_class.retry):
                 try:
-                    worker_class.run(*kwargs["args"], **kwargs["kwargs"])
+                    result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
                     break
-                except worker_class.autoretry_for as e:
+                except worker_class.autoretry_for:
                     worker_class.logger.exception(f"Resumable retry {i + 1}/{worker_class.retry} time")
-                    error_type = e
+                    exc_type, exc_value, exc_traceback = sys.exc_info()
                     continue
-                except Exception as e:
-                    error_type = e
+                except:
+                    exc_type, exc_value, exc_traceback = sys.exc_info()
                     break
-            if error_type:
-                worker_class.on_failure(error_type)
+            if exc_type:
+                self.rpc.ack(task_id, fail=True)
+                worker_class.on_failure(exc_type, exc_value, exc_traceback)
             else:
+                self.rpc.ack(task_id)
+                if not worker_class.ignore_result:
+                    self.rpc.set(
+                        task_id,
+                        src,
+                        payload=result or {},
+                        serialization=worker_class.serialization,
+                        compression=worker_class.compression
+                    )
                 worker_class.on_success()
 
     def manager(self, kws, instruction):
@@ -491,13 +515,24 @@ class Task:
     wid = None
     src = None
 
-    def __init__(self, app: Shuniu, name: str, func: type(abs), conf: Dict, bind: bool = False,
-                 autoretry_for: Tuple[Exception] = None, retry: int = 3):
+    def __init__(self, app: Shuniu,
+                 name: str,
+                 func: type(abs),
+                 conf: Dict,
+                 bind: bool = False,
+                 autoretry_for: Tuple[Exception] = None,
+                 retry: int = 3,
+                 ignore_result=True,
+                 serialization=None,
+                 compression=None):
         self.name = name
         self.app = app
         self.func = func
         self.bind = bind
         self.conf = conf
+        self.ignore_result = ignore_result
+        self.serialization = serialization
+        self.compression = compression
         self.autoretry_for = autoretry_for
 
     @property
@@ -516,11 +551,11 @@ class Task:
     def apply_async(self, *args, **kwargs) -> AsyncResult:
         return self.app.rpc.apply_async(self.name, *args, **kwargs)
 
-    def on_failure(self, exc):
-        self.app.rpc.ack(self.task_id, fail=True)
+    def on_failure(self, exc_type, exc_value, exc_traceback):
+        pass
 
     def on_success(self):
-        self.app.rpc.ack(self.task_id)
+        pass
 
     def run(self, *args, **kwargs) -> Any:
         if self.bind:
