@@ -110,6 +110,7 @@ def encode_payload(
 RPCDefaultConf = {
     "serialization": SerializationAlgorithm.json,
     "compression": CompressionAlgorithm.bz2,
+    "ignore_result": True,
     "router": {},
 }
 
@@ -220,7 +221,7 @@ class shuniuRPC:
                 "Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
 
     def apply_async(self, task: str, *, args: Sequence = None, kwargs: Dict = None, queue: str = None,
-                    **options) -> AsyncResult:
+                    **options) -> "AsyncResult":
         if not isinstance(task, str):
             raise TypeError("task type only str")
         elif args and not isinstance(args, tuple):
@@ -522,7 +523,7 @@ class Task:
                  bind: bool = False,
                  autoretry_for: Tuple[Exception] = None,
                  retry: int = 3,
-                 ignore_result=True,
+                 ignore_result=None,
                  serialization=None,
                  compression=None):
         self.name = name
@@ -530,7 +531,10 @@ class Task:
         self.func = func
         self.bind = bind
         self.conf = conf
-        self.ignore_result = ignore_result
+        if isinstance(ignore_result, bool):
+            self.ignore_result = ignore_result
+        else:
+            self.ignore_result = conf.get("ignore_result", True)
         self.serialization = serialization
         self.compression = compression
         self.autoretry_for = autoretry_for
