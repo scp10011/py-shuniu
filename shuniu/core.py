@@ -44,6 +44,17 @@ class ErrorCode(enum.IntEnum):
     ServerInternalError = 500
 
 
+class Singleton(object):
+    def __init__(self, cls):
+        self._cls = cls
+        self._instance = {}
+
+    def __call__(self):
+        if self._cls not in self._instance:
+            self._instance[self._cls] = self._cls()
+        return self._instance[self._cls]
+
+
 def decode_payload(payload: str, payload_type: int) -> Dict:
     data = binascii.a2b_base64(payload)
     coding = payload_type & 15
@@ -208,7 +219,7 @@ class shuniuRPC:
                 "Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
 
     def apply_async(self, task: str, *, args: Sequence = None, kwargs: Dict = None, queue: str = None,
-                    **options) -> str:
+                    **options) -> AsyncResult:
         if not isinstance(task, str):
             raise TypeError("task type only str")
         elif args and not isinstance(args, tuple):
@@ -236,7 +247,7 @@ class shuniuRPC:
         }
         with self.__api_call__("POST", f"/task/release/{queue}", data=data) as r:
             if r.ok and r.json().get("code") == 0:
-                return task_id
+                return AsyncResult(task_id, self)
             else:
                 raise ValueError(
                     "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)) from None
@@ -280,6 +291,18 @@ class shuniuRPC:
         with self.__api_call__("PUT", f"/task/ack/{task_id}/{method}") as r:
             if r.ok and r.json().get("code") == 0:
                 return
+            else:
+                raise ValueError(
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)) from None
+
+    def get(self, task_id: str):
+        with self.__api_call__("GET", f"/task/result/{task_id}") as r:
+            if r.ok:
+                data = r.json()
+                if data["code"] == 404:
+                    return False
+                elif data["code"] == 0:
+                    return decode_payload(data["payload"], data["type"])
             else:
                 raise ValueError(
                     "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)) from None
@@ -329,6 +352,7 @@ ShuniuDefaultConf = {
 }
 
 
+@Singleton
 class Shuniu:
     def __init__(self, app: str, rpc_server: str, **kwargs):
         self.app = app
@@ -339,11 +363,18 @@ class Shuniu:
         self.task_registered_map: Dict[int, Task] = {}
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
         self.worker_pool: Dict[int, Tuple] = {}
-        self.control = {}
+        self.control = {1: self.ping, 2: self.get_stats}
+        self.state = {}
 
     @property
     def logger(self) -> logging.Logger:
         return logging.getLogger("Shuniu[core]")
+
+    def ping(self, *args, **kwargs):
+        return True
+
+    def get_stats(self, *args, **kwargs):
+        return self.state
 
     def task(self, *args, **kwargs):
         if len(args) == 1 and isinstance(args, type(abs)):
@@ -428,12 +459,25 @@ class Shuniu:
                     if not task:
                         break
                     else:
+                        self.state[task[-1]] = self.state.setdefault(task[-1], 0) + 1
                         queue.put(task)
             else:
                 go_back = 1
                 continue
             time.sleep(go_back)
             go_back = 64 if go_back == 64 else go_back * 2
+
+
+class AsyncResult:
+    def __init__(self, task_id: str, rpc: shuniuRPC):
+        self.rpc = rpc
+        self.task_id = task_id
+
+    def get(self) -> Any:
+        self.rpc.get(self.task_id)
+
+    def revoke(self) -> None:
+        self.rpc.revoke(self.task_id)
 
 
 class Task:
@@ -463,7 +507,7 @@ class Task:
         self.src = src
         self.wid = wid
 
-    def apply_async(self, *args, **kwargs) -> str:
+    def apply_async(self, *args, **kwargs) -> AsyncResult:
         return self.app.rpc.apply_async(self.name, *args, **kwargs)
 
     def on_failure(self, exc):
