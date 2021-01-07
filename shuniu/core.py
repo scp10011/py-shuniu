@@ -362,6 +362,19 @@ ShuniuDefaultConf = {
 }
 
 
+def set_logging(logger: logging.Logger, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
+    logger.setLevel(loglevel.upper())
+    formatter = logging.Formatter('[%(asctime)-12s ][%(name)s] %(message)s')
+    if logfile:
+        handler = logging.FileHandler(logfile)
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    if logstdout:
+        handler = logging.StreamHandler()
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+
 @Singleton
 class Shuniu:
     def __init__(self, app: str, rpc_server: str, **kwargs):
@@ -376,14 +389,7 @@ class Shuniu:
         self.control = {1: self.ping, 2: self.get_stats}
         self.state = {}
         self.logger = logging.getLogger("Shuniu[core]")
-        self.init_logging()
-
-    def init_logging(self):
-        self.logger.setLevel(self.conf["loglevel"].upper())
-        if self.conf["logfile"]:
-            self.logger.addHandler(logging.FileHandler(self.conf["logfile"]))
-        if self.conf["logstdout"]:
-            self.logger.addHandler(logging.StreamHandler())
+        set_logging(self.logger, **kwargs)
 
     def ping(self, *args, **kwargs):
         return True
@@ -572,14 +578,7 @@ class Task:
         self.compression = compression
         self.autoretry_for = autoretry_for
         self.logger = logging.getLogger(f"Shuniu-Task[{self.name}]-{self.wid}")
-        self.init_logging()
-
-    def init_logging(self):
-        self.logger.setLevel(self.conf["loglevel"].upper())
-        if self.conf["logfile"]:
-            self.logger.addHandler(logging.FileHandler(self.conf["logfile"]))
-        if self.conf["logstdout"]:
-            self.logger.addHandler(logging.StreamHandler())
+        set_logging(self.logger, **kwargs)
 
     @property
     def retry(self):
