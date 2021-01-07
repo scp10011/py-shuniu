@@ -365,14 +365,16 @@ ShuniuDefaultConf = {
 def set_logging(logger: logging.Logger, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
     logger.setLevel(loglevel.upper())
     formatter = logging.Formatter('[%(asctime)-12s ][%(name)s] %(message)s')
+    handlers = []
     if logfile:
         handler = logging.FileHandler(logfile)
         handler.setFormatter(formatter)
-        logger.addHandler(handler)
+        handlers.append(handler)
     if logstdout:
         handler = logging.StreamHandler()
         handler.setFormatter(formatter)
-        logger.addHandler(handler)
+        handlers.append(handler)
+    logger.handlers = handlers
 
 
 @Singleton
@@ -418,13 +420,15 @@ class Shuniu:
         return Signature(self.rpc, name)
 
     def worker(self, queue: multiprocessing.Queue, wid: int):
+        logger = logging.getLogger(f"Worker-{wid}")
+        set_logging(logger, **self.conf)
         while 1:
             kwargs, task_id, src, task_type = queue.get()
             worker_class = self.task_registered_map[task_type]
             worker_class.mock(task_id=task_id, src=src, wid=wid)
             exc_type, exc_value, exc_traceback = None, None, None
             start_time = time.time()
-            worker_class.logger.info(f" Start {self.rpc.task_map[task_type]}[{task_id}]")
+            logger.info(f" Start {self.rpc.task_map[task_type]}[{task_id}]")
             for i in range(worker_class.retry):
                 try:
                     result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
@@ -440,7 +444,7 @@ class Shuniu:
             if exc_type:
                 self.rpc.ack(task_id, fail=True)
                 worker_class.on_failure(exc_type, exc_value, exc_traceback)
-                worker_class.logger.info(
+                logger.info(
                     f" Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}")
             else:
                 self.rpc.ack(task_id)
@@ -452,7 +456,7 @@ class Shuniu:
                         serialization=worker_class.serialization,
                         compression=worker_class.compression
                     )
-                worker_class.logger.info(
+                logger.info(
                     f" Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}")
                 worker_class.on_success()
 
@@ -577,7 +581,7 @@ class Task:
         self.serialization = serialization
         self.compression = compression
         self.autoretry_for = autoretry_for
-        self.logger = logging.getLogger(f"Shuniu-Task[{self.name}]-{self.wid}")
+        self.logger = logging.getLogger(f"Shuniu-Task[{self.name}]")
         set_logging(self.logger, **kwargs)
 
     @property
