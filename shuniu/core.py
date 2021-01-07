@@ -479,7 +479,7 @@ class Shuniu:
 
 [tasks]""")
         for tid, task in self.task_registered_map.items():
-            print(f".> {self.rpc.task_map[tid]} ==> {task}")
+            print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.ignore_result}")
 
     def start(self):
         globals().update({p: __import__(p) for p in self.conf["imports"]})
