@@ -379,7 +379,7 @@ class Shuniu:
         self.init_logging()
 
     def init_logging(self):
-        self.logger.setLevel(self.conf["loglevel"])
+        self.logger.setLevel(self.conf["loglevel"].upper())
         if self.conf["logfile"]:
             self.logger.addHandler(logging.FileHandler(self.conf["logfile"]))
         if self.conf["logstdout"]:
@@ -572,7 +572,7 @@ class Task:
         self.init_logging()
 
     def init_logging(self):
-        self.logger.setLevel(self.conf["loglevel"])
+        self.logger.setLevel(self.conf["loglevel"].upper())
         if self.conf["logfile"]:
             self.logger.addHandler(logging.FileHandler(self.conf["logfile"]))
         if self.conf["logstdout"]:
