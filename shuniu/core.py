@@ -165,12 +165,6 @@ class shuniuRPC:
         return self.__api__.request(method, url, **kwargs)
 
     def login(self):
-        if os.path.exists("../.cookies"):
-            with open("../.cookies", 'rb') as f:
-                cookies = requests.utils.cookiejar_from_dict(pickle.load(f))
-            self.__api__.cookies.update(cookies)
-            self.logged_in = True
-            return
         passwd = f"{self.username}:{self.password}"
         key = binascii.b2a_base64(passwd.encode()).decode()
         auth = f"Basic {key}".strip()
@@ -180,8 +174,6 @@ class shuniuRPC:
                 if msg.get("code") != 0:
                     raise ValueError("Requests Error: {}".format(msg.get("msg", "")))  from None
                 self.logged_in = True
-                with open("../.cookies", 'wb') as f:
-                    pickle.dump(requests.utils.dict_from_cookiejar(self.__api__.cookies), f)
                 return
             else:
                 raise ConnectionError("connection to rpc server error: {}".format(r.status_code)) from None
