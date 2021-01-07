@@ -557,7 +557,7 @@ class Task:
                  serialization=None,
                  compression=None,
                  **kwargs):
-        self.app.logger.warning(f"Unknown parameter: {kwargs}")
+        app.logger.warning(f"Unknown parameter: {kwargs}")
         self.name = name
         self.app = app
         self.func = func
