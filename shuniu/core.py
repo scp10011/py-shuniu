@@ -364,7 +364,7 @@ ShuniuDefaultConf = {
 
 def set_logging(logger: logging.Logger, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
     logger.setLevel(loglevel.upper())
-    formatter = logging.Formatter('[%(asctime)-12s %(level)s/%(name)s] %(message)s')
+    formatter = logging.Formatter('[%(asctime)-12s %(levelname)s/%(name)s] %(message)s')
     handlers = []
     if logfile:
         handler = logging.FileHandler(logfile)
