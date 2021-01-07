@@ -428,7 +428,7 @@ class Shuniu:
             worker_class.mock(task_id=task_id, src=src, wid=wid)
             exc_type, exc_value, exc_traceback = None, None, None
             start_time = time.time()
-            logger.info(f" Start {self.rpc.task_map[task_type]}[{task_id}]")
+            logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]")
             for i in range(worker_class.retry):
                 try:
                     result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
@@ -445,7 +445,7 @@ class Shuniu:
                 self.rpc.ack(task_id, fail=True)
                 worker_class.on_failure(exc_type, exc_value, exc_traceback)
                 logger.info(
-                    f" Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}")
+                    f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}")
             else:
                 self.rpc.ack(task_id)
                 if not worker_class.ignore_result:
@@ -457,7 +457,7 @@ class Shuniu:
                         compression=worker_class.compression
                     )
                 logger.info(
-                    f" Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}")
+                    f"Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}")
                 worker_class.on_success()
 
     def manager(self, kws, instruction):
@@ -541,7 +541,7 @@ class AsyncResult:
     def get(self) -> Any:
         result = self.rpc.get(self.task_id)
         go_back = 1
-        while not result:
+        while result is False:
             time.sleep(go_back)
             result = self.rpc.get(self.task_id)
             go_back = 64 if go_back == 64 else go_back * 2
