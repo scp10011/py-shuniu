@@ -401,9 +401,8 @@ class Shuniu:
         self.task_registered_map[type_id] = worker_base(app=self, name=name, func=func, conf=self.conf, bind=bind,
                                                         autoretry_for=autoretry_for)
 
-    def signature(self, name: str) -> "Task":
-        type_id = self.rpc.registered(name)
-        return self.task_registered_map[type_id]
+    def signature(self, name: str) -> "Signature":
+        return Signature(self.rpc, name)
 
     def worker(self, queue: multiprocessing.Queue, wid: int):
         while 1:
@@ -506,6 +505,15 @@ class Shuniu:
                 continue
             time.sleep(go_back)
             go_back = 64 if go_back == 64 else go_back * 2
+
+
+class Signature:
+    def __init__(self, rpc, task_name):
+        self.rpc = rpc
+        self.name = task_name
+
+    def apply_async(self, *args, **kwargs) -> "AsyncResult":
+        return self.rpc.apply_async(self.name, *args, **kwargs)
 
 
 class AsyncResult:
