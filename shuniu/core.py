@@ -555,7 +555,9 @@ class Task:
                  retry: int = 3,
                  ignore_result=None,
                  serialization=None,
-                 compression=None):
+                 compression=None,
+                 **kwargs):
+        self.app.logger.warning(f"Unknown parameter: {kwargs}")
         self.name = name
         self.app = app
         self.func = func
