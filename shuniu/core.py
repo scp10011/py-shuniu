@@ -346,7 +346,7 @@ class shuniuRPC:
 
 def urlparse(uri) -> Dict:
     obj = urllib.parse.urlparse(uri)
-    url = urllib.parse.urlunparse([obj.scheme, obj.netloc, obj.path, "", "", ""])
+    url = urllib.parse.urlunparse([obj.scheme, obj.netloc.split('@')[-1], obj.path, "", "", ""])
     return {"username": obj.username, "password": obj.password, "url": url}
 
 
@@ -411,6 +411,8 @@ class Shuniu:
             worker_class = self.task_registered_map[task_type]
             worker_class.mock(task_id=task_id, src=src, wid=wid)
             exc_type, exc_value, exc_traceback = None, None, None
+            start_time = time.time()
+            worker_class.logger.info(f" Start {self.rpc.task_map[task_type]}[{task_id}]")
             for i in range(worker_class.retry):
                 try:
                     result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
@@ -422,9 +424,12 @@ class Shuniu:
                 except:
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     break
+            runner_time = time.time() - start_time
             if exc_type:
                 self.rpc.ack(task_id, fail=True)
                 worker_class.on_failure(exc_type, exc_value, exc_traceback)
+                worker_class.logger.info(
+                    f" Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}")
             else:
                 self.rpc.ack(task_id)
                 if not worker_class.ignore_result:
@@ -435,6 +440,8 @@ class Shuniu:
                         serialization=worker_class.serialization,
                         compression=worker_class.compression
                     )
+                worker_class.logger.info(
+                    f" Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}")
                 worker_class.on_success()
 
     def manager(self, kws, instruction):
@@ -455,6 +462,19 @@ class Shuniu:
             time.sleep(go_back)
             go_back = 64 if go_back == 64 else go_back * 2
 
+    def print_banners(self):
+        print(
+            f"""
+[config]
+.> app: {self.app}
+.> transport: {self.rpc.base}
+.> concurrency: {self.conf['concurrency']}
+.> manager: {self.conf['worker_enable_remote_control']}
+
+[tasks]""")
+        for tid, task in self.task_registered_map.items():
+            print(f".> {self.rpc.task_map[tid]} ==> {task}")
+
     def start(self):
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         if self.conf["worker_enable_remote_control"]:
@@ -464,6 +484,7 @@ class Shuniu:
             worker = multiprocessing.Process(target=self.worker, args=(queue, i,))
             self.worker_pool[i] = (worker, queue)
             worker.start()
+        self.print_banners()
         go_back = 1
         while 1:
             for wid, (worker, queue) in self.worker_pool.items():
@@ -476,8 +497,10 @@ class Shuniu:
                     if not task:
                         break
                     else:
-                        self.state[task[-1]] = self.state.setdefault(task[-1], 0) + 1
-                        queue.put(task)
+                        kwargs, task_id, src, task_type = task
+                        self.logger.info(f"Received task: {self.rpc.task_map[task_type]}[{task_id}]")
+                        self.state[task_type] = self.state.setdefault(task_type, 0) + 1
+                        queue.put((kwargs, task_id, src, task_type))
             else:
                 go_back = 1
                 continue
