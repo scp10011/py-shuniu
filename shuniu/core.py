@@ -355,7 +355,10 @@ ShuniuDefaultConf = {
     "worker_enable_remote_control": True,
     "imports": [],
     "priority": 0,
-    "max_retries": 3
+    "max_retries": 3,
+    "loglevel": "info",
+    "logfile": None,
+    "logstdout": True,
 }
 
 
@@ -372,10 +375,15 @@ class Shuniu:
         self.worker_pool: Dict[int, Tuple] = {}
         self.control = {1: self.ping, 2: self.get_stats}
         self.state = {}
+        self.logger = logging.getLogger("Shuniu[core]")
+        self.init_logging()
 
-    @property
-    def logger(self) -> logging.Logger:
-        return logging.getLogger("Shuniu[core]")
+    def init_logging(self):
+        self.logger.setLevel(self.conf["loglevel"])
+        if self.conf["logfile"]:
+            self.logger.addHandler(logging.FileHandler(self.conf["logfile"]))
+        if self.conf["logstdout"]:
+            self.logger.addHandler(logging.StreamHandler())
 
     def ping(self, *args, **kwargs):
         return True
@@ -388,7 +396,7 @@ class Shuniu:
             return self.registered(args[0])
         return functools.partial(self.registered, *args, **kwargs)
 
-    def registered(self, func: type(abs), name=None, base=None, bind=False, autoretry_for=None, **kwargs):
+    def registered(self, func: type(abs), name=None, base=None, **kwargs):
         if not name:
             name = f"{self.app}.{func.__name__}"
         elif name.count(".") != 1:
@@ -398,8 +406,7 @@ class Shuniu:
             worker_base = base
         else:
             worker_base = Task
-        self.task_registered_map[type_id] = worker_base(app=self, name=name, func=func, conf=self.conf, bind=bind,
-                                                        autoretry_for=autoretry_for)
+        self.task_registered_map[type_id] = worker_base(app=self, name=name, func=func, conf=self.conf, **kwargs)
 
     def signature(self, name: str) -> "Signature":
         return Signature(self.rpc, name)
@@ -561,14 +568,19 @@ class Task:
         self.serialization = serialization
         self.compression = compression
         self.autoretry_for = autoretry_for
+        self.logger = logging.getLogger(f"Shuniu-Task[{self.name}]-{self.wid}")
+        self.init_logging()
+
+    def init_logging(self):
+        self.logger.setLevel(self.conf["loglevel"])
+        if self.conf["logfile"]:
+            self.logger.addHandler(logging.FileHandler(self.conf["logfile"]))
+        if self.conf["logstdout"]:
+            self.logger.addHandler(logging.StreamHandler())
 
     @property
     def retry(self):
         return self.conf["max_retries"]
-
-    @property
-    def logger(self) -> logging.Logger:
-        return logging.getLogger(f"Shuniu-Task[{self.name}]-{self.wid}")
 
     def mock(self, task_id, src, wid):
         self.task_id = task_id
