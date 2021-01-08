@@ -372,9 +372,16 @@ ShuniuDefaultConf = {
 }
 
 
+class WorkerLogFilter(logging.Filter):
+    def filter(self, record):
+        if not hasattr(record, 'wid'):
+            record.user_id = 'Main'
+        return True
+
+
 def set_logging(logger: logging.Logger, stdout, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
     logger.setLevel(loglevel.upper())
-    formatter = logging.Formatter('[%(asctime)-12s %(levelname)s/%(name)s] %(message)s')
+    formatter = logging.Formatter('[%(asctime)-12s %(levelname)s/%(name)s-%(wid)s] %(message)s')
     handlers = []
     if logfile:
         handler = logging.FileHandler(logfile)
@@ -385,6 +392,7 @@ def set_logging(logger: logging.Logger, stdout, loglevel="INFO", logfile=None, l
         handler.setFormatter(formatter)
         handlers.append(handler)
     logger.handlers = handlers
+    logger.addFilter(WorkerLogFilter())
 
 
 @Singleton
@@ -433,8 +441,6 @@ class Shuniu:
         return Signature(self.rpc, name)
 
     def worker(self, queue: multiprocessing.Queue, wid: int):
-        logger = logging.getLogger(f"Worker-{wid}")
-        set_logging(logger, self.__stderr__, **self.conf)
         while 1:
             task = queue.get()
             if task is EndFlag:
@@ -444,13 +450,14 @@ class Shuniu:
             worker_class.mock(task_id=task_id, src=src, wid=wid)
             exc_type, exc_value, exc_traceback = None, None, None
             start_time = time.time()
-            logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]")
+            worker_class.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
             for i in range(worker_class.retry):
                 try:
                     result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
                     break
                 except worker_class.autoretry_for:
-                    worker_class.logger.exception(f"Resumable retry {i + 1}/{worker_class.retry} time")
+                    worker_class.logger.exception(f"Resumable retry {i + 1}/{worker_class.retry} time",
+                                                  extra={"wid": wid})
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     continue
                 except:
@@ -460,8 +467,8 @@ class Shuniu:
             if exc_type:
                 self.ack(task_id, fail=True)
                 worker_class.on_failure(exc_type, exc_value, exc_traceback)
-                logger.info(
-                    f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}")
+                worker_class.logger.info(
+                    f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}", extra={"wid": wid})
             else:
                 self.ack(task_id)
                 if not worker_class.ignore_result:
@@ -472,8 +479,9 @@ class Shuniu:
                         serialization=worker_class.serialization,
                         compression=worker_class.compression
                     )
-                logger.info(
-                    f"Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}")
+                worker_class.logger.info(
+                    f"Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}",
+                    extra={"wid": wid})
                 worker_class.on_success()
 
     def ack(self, *args, **kwargs):
