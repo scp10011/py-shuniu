@@ -126,6 +126,7 @@ class shuniuRPC:
                  password: str,
                  ssl_option: Dict[str, str] = None,
                  **kwargs):
+        self.thread_lock = threading.Lock()
         self.__api__ = requests.Session()
         self.base = urllib.parse.urljoin(url, "./rpc/")
         self.uid = uuid.UUID(username)
@@ -166,7 +167,8 @@ class shuniuRPC:
             raise TypeError("Not logged in") from None
         url = "./" + url.strip(".").lstrip("/")
         url = urllib.parse.urljoin(self.base, url)
-        return self.__api__.request(method, url, **kwargs)
+        with self.thread_lock:
+            return self.__api__.request(method, url, **kwargs)
 
     def login(self):
         passwd = f"{self.username}:{self.password}"
@@ -389,6 +391,7 @@ class Shuniu:
         conn_obj = urlparse(rpc_server)
         self.rpc = shuniuRPC(**conn_obj, **kwargs)
         self.rpc.login()
+        self.rpc.get_task_list()
         self.task_registered_map: Dict[int, Task] = {}
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
         self.worker_pool: Dict[int, Tuple] = {}
