@@ -393,6 +393,7 @@ def set_logging(logger: logging.Logger, stdout, loglevel="INFO", logfile=None, l
         handlers.append(handler)
     logger.handlers = handlers
     logger.addFilter(WorkerLogFilter())
+    return logger
 
 
 @Singleton
@@ -410,9 +411,7 @@ class Shuniu:
         self.worker_pool: Dict[int, Tuple] = {}
         self.control = {1: self.ping, 2: self.get_stats}
         self.state = {}
-        self.logger = logging.getLogger("Shuniu[core]")
-        self.__stderr__ = sys.stderr
-        set_logging(self.logger, self.__stderr__, **kwargs)
+        self.logger = set_logging(logging.getLogger("Shuniu"), self.__stderr__, **kwargs)
 
     def ping(self, *args, **kwargs):
         return True
@@ -629,8 +628,7 @@ class Task:
         self.serialization = serialization
         self.compression = compression
         self.autoretry_for = autoretry_for
-        self.logger = logging.getLogger(f"Shuniu-Task[{self.name}]")
-        set_logging(self.logger, self.app.__stderr__, **kwargs)
+        self.logger = set_logging(logging.getLogger(f"Shuniu-Task[{self.name}]"), self.app.__stderr__, **kwargs)
 
     @property
     def retry(self):
