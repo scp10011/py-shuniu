@@ -392,6 +392,7 @@ class Shuniu:
         self.rpc = shuniuRPC(**conn_obj, **kwargs)
         self.rpc.login()
         self.rpc.get_task_list()
+        self.ack_queue = multiprocessing.Queue()
         self.task_registered_map: Dict[int, Task] = {}
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
         self.worker_pool: Dict[int, Tuple] = {}
@@ -450,14 +451,14 @@ class Shuniu:
                     break
             runner_time = time.time() - start_time
             if exc_type:
-                self.rpc.ack(task_id, fail=True)
+                self.ack(task_id, fail=True)
                 worker_class.on_failure(exc_type, exc_value, exc_traceback)
                 logger.info(
                     f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}")
             else:
-                self.rpc.ack(task_id)
+                self.ack(task_id)
                 if not worker_class.ignore_result:
-                    self.rpc.set(
+                    self.set(
                         task_id,
                         src,
                         payload=result or {},
@@ -467,6 +468,25 @@ class Shuniu:
                 logger.info(
                     f"Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}")
                 worker_class.on_success()
+
+    def ack(self, *args, **kwargs):
+        self.ack_queue.put(("ack", args, kwargs))
+
+    def set(self, *args, **kwargs):
+        self.ack_queue.put(("set", args, kwargs))
+
+    def ack_worker(self):
+        ACK_MODE = {"ack": self.rpc.ack, "set": self.rpc.set}
+        while 1:
+            try:
+                mod, args, kwargs = self.ack_queue.get()
+            except:
+                continue
+            try:
+                ACK_MODE[mod](*args, **kwargs)
+            except:
+                self.ack_queue.put(mod, args, kwargs)
+                self.logger.error("ack error")
 
     def manager(self, kws, instruction):
         self.control[instruction](*kws["args"], **kws["kwargs"])
@@ -503,6 +523,7 @@ class Shuniu:
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         if self.conf["worker_enable_remote_control"]:
             threading.Thread(target=self.manager_worker).start()
+        threading.Thread(target=self.ack_worker).start()
         for i in range(self.conf["concurrency"]):
             queue = multiprocessing.Queue()
             worker = multiprocessing.Process(target=self.worker, args=(queue, i,))
