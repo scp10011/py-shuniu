@@ -130,7 +130,7 @@ class shuniuRPC:
                  password: str,
                  ssl_option: Dict[str, str] = None,
                  **kwargs):
-        self.thread_lock = threading.Lock()
+        self.__lock__ = multiprocessing.Lock()
         self.__api__ = requests.Session()
         self.base = urllib.parse.urljoin(url, "./rpc/")
         self.uid = uuid.UUID(username)
@@ -171,7 +171,7 @@ class shuniuRPC:
             raise TypeError("Not logged in") from None
         url = "./" + url.strip(".").lstrip("/")
         url = urllib.parse.urljoin(self.base, url)
-        with self.thread_lock:
+        with self.__lock__:
             return self.__api__.request(method, url, **kwargs)
 
     def login(self):
@@ -466,14 +466,14 @@ class Shuniu:
                     break
             runner_time = time.time() - start_time
             if exc_type:
-                self.ack(task_id, fail=True)
+                self.rpc.ack(task_id, fail=True)
                 worker_class.on_failure(exc_type, exc_value, exc_traceback)
                 worker_class.logger.info(
                     f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}", extra={"wid": wid})
             else:
-                self.ack(task_id)
+                self.rpc.ack(task_id)
                 if not worker_class.ignore_result:
-                    self.set(
+                    self.rpc.set(
                         task_id,
                         src,
                         payload=result or {},
@@ -484,12 +484,6 @@ class Shuniu:
                     f"Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}",
                     extra={"wid": wid})
                 worker_class.on_success()
-
-    def ack(self, *args, **kwargs):
-        self.ack_queue.put(("ack", args, kwargs))
-
-    def set(self, *args, **kwargs):
-        self.ack_queue.put(("set", args, kwargs))
 
     def ack_worker(self):
         ACK_MODE = {"ack": self.rpc.ack, "set": self.rpc.set}
