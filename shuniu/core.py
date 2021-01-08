@@ -579,6 +579,9 @@ class AsyncResult:
     def revoke(self) -> None:
         self.rpc.revoke(self.task_id)
 
+    def __repr__(self):
+        return f"<AsyncResult {self.task_id} at {hex(id(self))}>"
+
 
 class Task:
     task_id = None
