@@ -56,6 +56,10 @@ class Singleton(object):
         return self._instance[self._cls]
 
 
+class EmptyData(ResourceWarning):
+    pass
+
+
 def decode_payload(payload: str, payload_type: int) -> Dict:
     data = binascii.a2b_base64(payload)
     coding = payload_type & 15
@@ -206,7 +210,7 @@ class shuniuRPC:
             if r.ok:
                 data = r.json()
                 if data["code"] == 404:
-                    return False
+                    return EmptyData
                 elif data["code"] == 0:
                     return decode_payload(data["payload"], data["type"]), data["tid"], data["src"], data["type_id"]
             raise ValueError(
@@ -307,7 +311,7 @@ class shuniuRPC:
             if r.ok:
                 data = r.json()
                 if data["code"] == 404:
-                    return False
+                    return EmptyData
                 elif data["code"] == 0:
                     return decode_payload(data["payload"], data["type"])
             else:
@@ -327,7 +331,7 @@ class shuniuRPC:
             if r.ok:
                 data = r.json()
                 if data["code"] == 404:
-                    return False
+                    return EmptyData
                 elif data["code"] == 0:
                     print(data)
                     return decode_payload(data["payload"], data["type"]), data["instruction"]
@@ -362,7 +366,7 @@ ShuniuDefaultConf = {
 }
 
 
-def set_logging(logger: logging.Logger, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
+def set_logging(logger: logging.Logger, stdout, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
     logger.setLevel(loglevel.upper())
     formatter = logging.Formatter('[%(asctime)-12s %(levelname)s/%(name)s] %(message)s')
     handlers = []
@@ -371,7 +375,7 @@ def set_logging(logger: logging.Logger, loglevel="INFO", logfile=None, logstdout
         handler.setFormatter(formatter)
         handlers.append(handler)
     if logstdout:
-        handler = logging.StreamHandler()
+        handler = logging.StreamHandler(stdout)
         handler.setFormatter(formatter)
         handlers.append(handler)
     logger.handlers = handlers
@@ -391,7 +395,8 @@ class Shuniu:
         self.control = {1: self.ping, 2: self.get_stats}
         self.state = {}
         self.logger = logging.getLogger("Shuniu[core]")
-        set_logging(self.logger, **kwargs)
+        self.__stderr__ = sys.stderr
+        set_logging(self.logger, self.__stderr__, **kwargs)
 
     def ping(self, *args, **kwargs):
         return True
@@ -421,7 +426,7 @@ class Shuniu:
 
     def worker(self, queue: multiprocessing.Queue, wid: int):
         logger = logging.getLogger(f"Worker-{wid}")
-        set_logging(logger, **self.conf)
+        set_logging(logger, self.__stderr__, **self.conf)
         while 1:
             kwargs, task_id, src, task_type = queue.get()
             worker_class = self.task_registered_map[task_type]
@@ -471,7 +476,7 @@ class Shuniu:
             except Exception:
                 self.logger.exception("Failed to get instruction")
             else:
-                if instruction:
+                if not issubclass(instruction, EmptyData):
                     self.manager(*instruction)
                     go_back = 1
                     continue
@@ -510,7 +515,7 @@ class Shuniu:
                     except Exception:
                         self.logger.exception("Failed to get task")
                         break
-                    if not task:
+                    if issubclass(task, EmptyData):
                         break
                     else:
                         kwargs, task_id, src, task_type = task
@@ -541,7 +546,7 @@ class AsyncResult:
     def get(self) -> Any:
         result = self.rpc.get(self.task_id)
         go_back = 1
-        while result is False:
+        while issubclass(result, EmptyData):
             time.sleep(go_back)
             result = self.rpc.get(self.task_id)
             go_back = 64 if go_back == 64 else go_back * 2
@@ -582,7 +587,7 @@ class Task:
         self.compression = compression
         self.autoretry_for = autoretry_for
         self.logger = logging.getLogger(f"Shuniu-Task[{self.name}]")
-        set_logging(self.logger, **kwargs)
+        set_logging(self.logger, self.app.__stderr__, **kwargs)
 
     @property
     def retry(self):
