@@ -485,7 +485,7 @@ class Shuniu:
             try:
                 ACK_MODE[mod](*args, **kwargs)
             except:
-                self.ack_queue.put(mod, args, kwargs)
+                self.ack_queue.put((mod, args, kwargs))
                 self.logger.error("ack error")
 
     def manager(self, kws, instruction):
