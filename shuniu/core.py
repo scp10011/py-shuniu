@@ -375,7 +375,7 @@ ShuniuDefaultConf = {
 class WorkerLogFilter(logging.Filter):
     def filter(self, record):
         if not hasattr(record, 'wid'):
-            record.user_id = 'Main'
+            record.wid = 'Main'
         return True
 
 
