@@ -506,6 +506,8 @@ class Shuniu:
         while 1:
             try:
                 instruction = self.rpc.manager()
+            except IOError:
+                self.logger.error("Retry after connection loss...")
             except Exception:
                 self.logger.exception("Failed to get instruction")
             else:
@@ -546,6 +548,9 @@ class Shuniu:
                 if queue.empty():
                     try:
                         task = self.rpc.consume(wid)
+                    except IOError:
+                        self.logger.error("Retry after connection loss...")
+                        break
                     except Exception:
                         self.logger.exception("Failed to get task")
                         break
