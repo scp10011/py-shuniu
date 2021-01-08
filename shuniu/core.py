@@ -379,10 +379,11 @@ class WorkerLogFilter(logging.Filter):
         return True
 
 
-def set_logging(loglevel="INFO", logfile=None, logstdout=True, **kwargs):
+def set_logging(name, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
     logger = multiprocessing.get_logger()
+    logger.name = name
     logger.setLevel(loglevel.upper())
-    formatter = logging.Formatter('[%(asctime)-12s %(levelname)s/%(processName)s-%(wid)s] %(message)s')
+    formatter = logging.Formatter('[%(levelname)s/%(name)s-%(wid)s] %(message)s')
     handlers = []
     if logfile:
         handler = logging.FileHandler(logfile)
@@ -412,7 +413,7 @@ class Shuniu:
         self.worker_pool: Dict[int, Tuple] = {}
         self.control = {1: self.ping, 2: self.get_stats}
         self.state = {}
-        self.logger = set_logging(**kwargs)
+        self.logger = set_logging("Shuniu", **kwargs)
 
     def ping(self, *args, **kwargs):
         return True
@@ -629,7 +630,7 @@ class Task:
         self.serialization = serialization
         self.compression = compression
         self.autoretry_for = autoretry_for
-        self.logger = set_logging(**kwargs)
+        self.logger = set_logging("Worker", **kwargs)
 
     @property
     def retry(self):
