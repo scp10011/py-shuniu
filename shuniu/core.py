@@ -60,6 +60,10 @@ class EmptyData(ResourceWarning):
     pass
 
 
+class EndFlag:
+    pass
+
+
 def decode_payload(payload: str, payload_type: int) -> Dict:
     data = binascii.a2b_base64(payload)
     coding = payload_type & 15
@@ -432,7 +436,10 @@ class Shuniu:
         logger = logging.getLogger(f"Worker-{wid}")
         set_logging(logger, self.__stderr__, **self.conf)
         while 1:
-            kwargs, task_id, src, task_type = queue.get()
+            task = queue.get()
+            if task is EndFlag:
+                continue
+            kwargs, task_id, src, task_type = task
             worker_class = self.task_registered_map[task_type]
             worker_class.mock(task_id=task_id, src=src, wid=wid)
             exc_type, exc_value, exc_traceback = None, None, None
@@ -546,6 +553,7 @@ class Shuniu:
                         self.logger.info(f"Received task: {self.rpc.task_map[task_type]}[{task_id}]")
                         self.state[task_type] = self.state.setdefault(task_type, 0) + 1
                         queue.put((kwargs, task_id, src, task_type))
+                        queue.put(EndFlag)
             else:
                 go_back = 1
                 continue
