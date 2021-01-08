@@ -629,7 +629,7 @@ class Task:
         self.serialization = serialization
         self.compression = compression
         self.autoretry_for = autoretry_for
-        self.logger = set_logging(multiprocessing.get_logger(), **kwargs)
+        self.logger = set_logging(**kwargs)
 
     @property
     def retry(self):
