@@ -476,7 +476,7 @@ class Shuniu:
             except Exception:
                 self.logger.exception("Failed to get instruction")
             else:
-                if not issubclass(instruction, EmptyData):
+                if instruction != EmptyData:
                     self.manager(*instruction)
                     go_back = 1
                     continue
@@ -515,7 +515,7 @@ class Shuniu:
                     except Exception:
                         self.logger.exception("Failed to get task")
                         break
-                    if issubclass(task, EmptyData):
+                    if task is EmptyData:
                         break
                     else:
                         kwargs, task_id, src, task_type = task
@@ -546,7 +546,7 @@ class AsyncResult:
     def get(self) -> Any:
         result = self.rpc.get(self.task_id)
         go_back = 1
-        while issubclass(result, EmptyData):
+        while result == EmptyData:
             time.sleep(go_back)
             result = self.rpc.get(self.task_id)
             go_back = 64 if go_back == 64 else go_back * 2
