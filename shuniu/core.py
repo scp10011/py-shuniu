@@ -379,7 +379,8 @@ class WorkerLogFilter(logging.Filter):
         return True
 
 
-def set_logging(logger: logging.Logger, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
+def set_logging(loglevel="INFO", logfile=None, logstdout=True, **kwargs):
+    logger = multiprocessing.get_logger()
     logger.setLevel(loglevel.upper())
     formatter = logging.Formatter('[%(asctime)-12s %(levelname)s/%(processName)s-%(wid)s] %(message)s')
     handlers = []
