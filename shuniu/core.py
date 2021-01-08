@@ -379,7 +379,7 @@ class WorkerLogFilter(logging.Filter):
         return True
 
 
-def set_logging(logger: logging.Logger, stdout, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
+def set_logging(logger: logging.Logger, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
     logger.setLevel(loglevel.upper())
     formatter = logging.Formatter('[%(asctime)-12s %(levelname)s/%(name)s-%(wid)s] %(message)s')
     handlers = []
@@ -388,7 +388,7 @@ def set_logging(logger: logging.Logger, stdout, loglevel="INFO", logfile=None, l
         handler.setFormatter(formatter)
         handlers.append(handler)
     if logstdout:
-        handler = logging.StreamHandler(stdout)
+        handler = logging.StreamHandler()
         handler.setFormatter(formatter)
         handlers.append(handler)
     logger.handlers = handlers
@@ -411,7 +411,7 @@ class Shuniu:
         self.worker_pool: Dict[int, Tuple] = {}
         self.control = {1: self.ping, 2: self.get_stats}
         self.state = {}
-        self.logger = set_logging(logging.getLogger("Shuniu"), self.__stderr__, **kwargs)
+        self.logger = set_logging(logging.getLogger("Shuniu"), **kwargs)
 
     def ping(self, *args, **kwargs):
         return True
@@ -628,7 +628,7 @@ class Task:
         self.serialization = serialization
         self.compression = compression
         self.autoretry_for = autoretry_for
-        self.logger = set_logging(logging.getLogger(f"Shuniu-Task[{self.name}]"), self.app.__stderr__, **kwargs)
+        self.logger = set_logging(logging.getLogger(f"Shuniu-Task[{self.name}]"), **kwargs)
 
     @property
     def retry(self):
