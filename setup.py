@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# encoding: utf-8
+
 import os
 import time
 import random
@@ -12,8 +15,9 @@ def get_version():
 
 
 def get_description():
-    ref_name = os.environ.get("CI_BUILD_REF_NAME", "dev")
-    ref_sha1 = os.environ.get("CI_BUILD_REF", random.random())
+    ref_name = os.environ.get("CI_COMMIT_REF_NAME", "dev")
+    ref_sha1 = os.environ.get("CI_COMMIT_SHA", random.random())
+
     return f"{ref_name} ({ref_sha1})"
 
 
