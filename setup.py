@@ -17,8 +17,7 @@ def get_version():
 def get_description():
     ref_name = os.environ.get("CI_COMMIT_REF_NAME", "dev")
     ref_sha1 = os.environ.get("CI_COMMIT_SHA", random.random())
-
-    return f"{ref_name} ({ref_sha1})"
+    return f"{ref_name} ({ref_sha1})".encode()
 
 
 def get_requirements():
