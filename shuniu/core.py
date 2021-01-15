@@ -553,6 +553,7 @@ class Shuniu:
                         task = self.rpc.consume(wid)
                     except IOError:
                         self.logger.error("Retry after connection loss...")
+                        time.sleep(2)
                         break
                     except Exception:
                         self.logger.exception("Failed to get task")
