@@ -629,6 +629,10 @@ class Task:
         self.autoretry_for = autoretry_for
 
     @property
+    def logger(self):
+        return self.app.logger
+
+    @property
     def retry(self):
         return self.conf["max_retries"]
 
