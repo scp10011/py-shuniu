@@ -390,8 +390,9 @@ def set_logging(name, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
     if logfile:
         handler = logging.FileHandler(logfile)
         logger.addHandler(handler)
+    logFormat = logging.Formatter('[%(levelname)s/%(name)s-%(wid)s] %(message)s')
     for handler in logger.handlers:
-        handler.setFormatter('[%(levelname)s/%(name)s-%(wid)s] %(message)s')
+        handler.setFormatter(logFormat)
     logger.addFilter(WorkerLogFilter())
     return logger
 
