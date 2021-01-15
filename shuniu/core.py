@@ -589,8 +589,9 @@ class AsyncResult:
         self.task_id = task_id
 
     def get(self) -> Any:
-        while (result := self.rpc.get(self.task_id)) == EmptyData:
-            pass
+        result = self.rpc.get(self.task_id)
+        while result == EmptyData:
+            result = self.rpc.get(self.task_id)
         return result
 
     def revoke(self) -> None:

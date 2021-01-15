@@ -30,5 +30,5 @@ setup(
     install_requires=["bson", "requests"],
     zip_safe=False,
     classifiers=["Private :: Do Not Upload"],
-    python_requires=">=3.8",
+    python_requires=">=3.6",
 )
