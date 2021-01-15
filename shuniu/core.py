@@ -24,8 +24,6 @@ import bson
 import requests
 import requests.utils
 
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s/%(name)s-%(wid)s] %(message)s')
-
 
 class SerializationAlgorithm(enum.IntEnum):
     json = 1
@@ -389,11 +387,11 @@ def set_logging(name, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
     logger = multiprocessing.get_logger()
     logger.name = name
     logger.setLevel(loglevel.upper())
-    handlers = []
     if logfile:
         handler = logging.FileHandler(logfile)
-        handlers.append(handler)
-    logger.handlers = handlers
+        logger.addHandler(handler)
+    for handler in logger.handlers:
+        handler.setFormatter('[%(levelname)s/%(name)s-%(wid)s] %(message)s')
     logger.addFilter(WorkerLogFilter())
     return logger
 
