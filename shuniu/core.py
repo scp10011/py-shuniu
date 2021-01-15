@@ -132,13 +132,13 @@ class shuniuRPC:
                  password: str,
                  ssl_option: Dict[str, str] = None,
                  **kwargs):
-        self.__api__ = self.new_session()
         self.ssl_option = ssl_option
         self.base = urllib.parse.urljoin(url, "./rpc/")
         self.uid = uuid.UUID(username)
         self.username = username
         self.password = password
         self.task_map = {}
+        self.__api__ = self.new_session()
         self.conf = {k: kwargs.get(k, v) for k, v in RPCDefaultConf.items()}
 
     def new_session(self):
