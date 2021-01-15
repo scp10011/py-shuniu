@@ -447,6 +447,7 @@ class Shuniu:
 
     def worker(self, queue: multiprocessing.Queue, wid: int):
         self.fork()
+        logger = set_logging("Worker", **self.conf)
         while 1:
             task = queue.get()
             if task is EndFlag:
@@ -456,13 +457,13 @@ class Shuniu:
             worker_class.mock(task_id=task_id, src=src, wid=wid)
             exc_type, exc_value, exc_traceback = None, None, None
             start_time = time.time()
-            self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
+            logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
             for i in range(worker_class.retry):
                 try:
                     result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
                     break
                 except worker_class.autoretry_for:
-                    self.logger.exception(f"Resumable retry {i + 1}/{worker_class.retry} time",
+                    logger.exception(f"Resumable retry {i + 1}/{worker_class.retry} time",
                                           extra={"wid": wid})
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     continue
@@ -473,7 +474,7 @@ class Shuniu:
             if exc_type:
                 self.rpc.ack(task_id, fail=True)
                 worker_class.on_failure(exc_type, exc_value, exc_traceback)
-                self.logger.info(
+                logger.info(
                     f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}", extra={"wid": wid})
             else:
                 self.rpc.ack(task_id)
@@ -485,7 +486,7 @@ class Shuniu:
                         serialization=worker_class.serialization,
                         compression=worker_class.compression
                     )
-                self.logger.info(
+                logger.info(
                     f"Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}",
                     extra={"wid": wid})
                 worker_class.on_success()
