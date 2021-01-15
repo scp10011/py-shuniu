@@ -3,7 +3,6 @@
 
 import os
 import time
-import random
 from setuptools import setup, find_packages
 
 
@@ -16,16 +15,6 @@ def get_version():
 
 def get_description():
     return "shuniu python client"
-
-
-def get_requirements():
-    with open("requirements.txt") as requirements:
-        return [
-            line.split("#", 1)[0].strip()
-            for line in filter(
-                lambda x: x and not x.startswith(("#", "--", "git+")), requirements
-            )
-        ]
 
 
 setup(
@@ -41,5 +30,5 @@ setup(
     install_requires=["bson", "requests"],
     zip_safe=False,
     classifiers=["Private :: Do Not Upload"],
-    python_requires=">=3.6",
+    python_requires=">=3.8",
 )
