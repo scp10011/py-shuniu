@@ -124,34 +124,39 @@ RPCDefaultConf = {
 
 
 class shuniuRPC:
+    logged_in = False
+
     def __init__(self,
                  url: str,
                  username: str,
                  password: str,
                  ssl_option: Dict[str, str] = None,
                  **kwargs):
-        self.__lock__ = multiprocessing.Lock()
-        self.__api__ = requests.Session()
+        self.__api__ = self.new_session()
+        self.ssl_option = ssl_option
         self.base = urllib.parse.urljoin(url, "./rpc/")
         self.uid = uuid.UUID(username)
         self.username = username
         self.password = password
-        if ssl_option:
-            if "client_cert" in ssl_option:
-                client_cert, client_key = ssl_option["client_cert"], ssl_option["client_key"]
-                if os.path.exists(client_key) and os.path.exists(client_cert):
-                    self.__api__.cert = client_cert, client_key
-                else:
-                    raise ValueError("Client certificate does not exist")
-            if "cacert" in ssl_option:
-                cacert = ssl_option["cacert"]
-                if os.path.exists(cacert):
-                    self.__api__.verify = cacert
-                else:
-                    raise ValueError("ca certificate does not exist")
-        self.logged_in = False
         self.task_map = {}
         self.conf = {k: kwargs.get(k, v) for k, v in RPCDefaultConf.items()}
+
+    def new_session(self):
+        session = requests.Session()
+        if self.ssl_option:
+            if "client_cert" in self.ssl_option:
+                client_cert, client_key = self.ssl_option["client_cert"], self.ssl_option["client_key"]
+                if os.path.exists(client_key) and os.path.exists(client_cert):
+                    session.cert = client_cert, client_key
+                else:
+                    raise ValueError("Client certificate does not exist")
+            if "cacert" in self.ssl_option:
+                cacert = self.ssl_option["cacert"]
+                if os.path.exists(cacert):
+                    session.verify = cacert
+                else:
+                    raise ValueError("ca certificate does not exist")
+        return session
 
     @property
     def task_router(self):
@@ -168,11 +173,10 @@ class shuniuRPC:
 
     def __api_call__(self, method: str, url: str, **kwargs) -> requests.Response:
         if url != "login" and not self.logged_in:
-            raise TypeError("Not logged in") from None
+            self.login()
         url = "./" + url.strip(".").lstrip("/")
         url = urllib.parse.urljoin(self.base, url)
-        with self.__lock__:
-            return self.__api__.request(method, url, **kwargs)
+        return self.__api__.request(method, url, **kwargs)
 
     def login(self):
         passwd = f"{self.username}:{self.password}"
@@ -415,6 +419,11 @@ class Shuniu:
         self.state = {}
         self.logger = set_logging("Shuniu", **kwargs)
 
+    def fork(self):
+        fork_session = self.rpc.new_session()
+        fork_session.cookies = self.rpc.__api__.cookies.copy()
+        self.rpc.__api__ = fork_session
+
     def ping(self, *args, **kwargs):
         return True
 
@@ -442,6 +451,7 @@ class Shuniu:
         return Signature(self.rpc, name)
 
     def worker(self, queue: multiprocessing.Queue, wid: int):
+        self.fork()
         while 1:
             task = queue.get()
             if task is EndFlag:
