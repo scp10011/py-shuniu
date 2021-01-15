@@ -552,7 +552,6 @@ class Shuniu:
             self.worker_pool[i] = (worker, queue)
             worker.start()
         self.print_banners()
-        go_back = 1
         while 1:
             for wid, (worker, queue) in self.worker_pool.items():
                 if queue.empty():
@@ -573,10 +572,7 @@ class Shuniu:
                         queue.put((kwargs, task_id, src, task_type))
                         queue.put(EndFlag)
             else:
-                go_back = 1
                 continue
-            time.sleep(go_back)
-            go_back = 64 if go_back == 64 else go_back * 2
 
 
 class Signature:
