@@ -630,7 +630,7 @@ class Task:
             self.ignore_result = conf.get("ignore_result", True)
         self.serialization = serialization
         self.compression = compression
-        self.autoretry_for = autoretry_for
+        self.autoretry_for = autoretry_for or ()
 
     @property
     def logger(self):

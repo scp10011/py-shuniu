@@ -20,7 +20,7 @@ def get_description():
 setup(
     name="shuniu",
     version=get_version(),
-    url="http://gitlab/scp10011/py-shuniu",
+    url="https://github.com/scp10011/py-shuniu",
     description="shuniu python client",
     long_description=get_description(),
     license="Private",
