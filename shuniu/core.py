@@ -238,6 +238,10 @@ class shuniuRPC:
         kwargs = kwargs or {}
         if not queue:
             queue = self.get_router(task)
+        try:
+            queue = str(uuid.UUID(queue))
+        except (ValueError, AttributeError):
+            raise ValueError("Queue is illegal!") from None
         task_id = uuid.UUID(options["task_id"]).hex if "task_id" in options else uuid.uuid5(self.uid, uuid.uuid4().hex)
         payload, payload_type = encode_payload(
             {"args": list(args), "kwargs": kwargs},
