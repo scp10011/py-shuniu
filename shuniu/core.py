@@ -462,6 +462,8 @@ class Shuniu:
                 continue
             kwargs, task_id, src, task_type = task
             worker_class = self.task_registered_map[task_type]
+            if not worker_class.forked:
+                worker_class.__init_socket__()
             worker_class.mock(task_id=task_id, src=src, wid=wid)
             exc_type, exc_value, exc_traceback = None, None, None
             start_time = time.time()
@@ -637,6 +639,10 @@ class Task:
         self.serialization = serialization
         self.compression = compression
         self.autoretry_for = autoretry_for or ()
+        self.forked = False
+
+    def __init_socket__(self):
+        pass
 
     @property
     def logger(self):
