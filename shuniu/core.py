@@ -478,6 +478,7 @@ class Shuniu:
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     continue
                 except:
+                    self.logger.exception("Unknown exception", extra={"wid": wid})
                     exc_type, exc_value, exc_traceback = sys.exc_info()
                     break
             runner_time = time.time() - start_time
