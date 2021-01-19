@@ -464,6 +464,7 @@ class Shuniu:
             worker_class = self.task_registered_map[task_type]
             if not worker_class.forked:
                 worker_class.__init_socket__()
+                worker_class.forked = True
             worker_class.mock(task_id=task_id, src=src, wid=wid)
             exc_type, exc_value, exc_traceback = None, None, None
             start_time = time.time()
