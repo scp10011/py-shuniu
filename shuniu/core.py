@@ -243,6 +243,7 @@ class shuniuRPC:
         except (ValueError, AttributeError):
             raise ValueError("Queue is illegal!") from None
         task_id = uuid.UUID(options["task_id"]).hex if "task_id" in options else uuid.uuid5(self.uid, uuid.uuid4().hex)
+        task_id = str(task_id)
         payload, payload_type = encode_payload(
             {"args": list(args), "kwargs": kwargs},
             coding=options.get("serialization", self.conf["serialization"]),
@@ -276,6 +277,7 @@ class shuniuRPC:
         if not destinations:
             raise ValueError("Destination cannot be empty")
         task_id = uuid.UUID(options["task_id"]).hex if "task_id" in options else uuid.uuid5(self.uid, uuid.uuid4().hex)
+        task_id = str(task_id)
         payload, payload_type = encode_payload(
             {"args": list(args), "kwargs": kwargs},
             coding=options.get("serialization", self.conf["serialization"]),
