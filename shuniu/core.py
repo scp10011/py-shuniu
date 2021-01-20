@@ -571,6 +571,7 @@ class Shuniu:
         self.print_banners()
         while 1:
             for wid, (worker, stdin) in self.worker_pool.items():
+                self.logger.info(f"size: {stdin.qsize()}, empty: {stdin.empty()}")
                 if stdin.qsize() == 0 and stdin.empty():
                     try:
                         task = self.rpc.consume(wid)
@@ -581,17 +582,16 @@ class Shuniu:
                     except Exception:
                         self.logger.exception("Failed to get task")
                         break
-                    if task is EmptyData:
-                        break
-                    else:
+                    if task is not EmptyData:
                         kwargs, task_id, src, task_type = task
                         self.logger.info(f"Received task: {self.rpc.task_map[task_type]}[{task_id}]")
                         self.state[task_type] = self.state.setdefault(task_type, 0) + 1
                         stdin.put((kwargs, task_id, src, task_type))
                         stdin.put(False)
-
+                    break
             else:
                 continue
+                time.sleep(2)
 
 
 class Signature:
@@ -632,7 +632,6 @@ class Task:
                  conf: Dict,
                  bind: bool = False,
                  autoretry_for: Tuple[Exception] = None,
-                 retry: int = 3,
                  ignore_result=None,
                  serialization=None,
                  compression=None,
