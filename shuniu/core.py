@@ -61,10 +61,6 @@ class EmptyData(ResourceWarning):
     pass
 
 
-class EndFlag:
-    pass
-
-
 def decode_payload(payload: str, payload_type: int) -> Dict:
     data = binascii.a2b_base64(payload)
     coding = payload_type & 15
@@ -455,13 +451,13 @@ class Shuniu:
     def signature(self, name: str) -> "Signature":
         return Signature(self.rpc, name)
 
-    def worker(self, queue: multiprocessing.Queue, wid: int):
+    def worker(self, queue: multiprocessing.Queue, wid: int, flag):
         self.fork()
         while 1:
             with contextlib.suppress(Exception):
+                flag.value = 0
                 task = queue.get()
-                if task is EndFlag:
-                    continue
+                flag.value = 1
                 kwargs, task_id, src, task_type = task
                 worker_class = self.task_registered_map[task_type]
                 if not worker_class.forked:
@@ -552,12 +548,12 @@ class Shuniu:
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.ignore_result}")
 
     def daemon(self):
-        for wid, (worker, queue) in self.worker_pool.items():
+        for wid, (worker, queue, flag) in self.worker_pool.items():
             try:
                 worker.join(timeout=0)
                 if not worker.is_alive():
                     self.logger.error(f"worker {wid} is down..")
-                    worker = multiprocessing.Process(target=self.worker, args=(queue, wid,))
+                    worker = multiprocessing.Process(target=self.worker, args=(queue, wid, flag,))
                     self.worker_pool[wid] = (worker, queue)
             except Exception:
                 pass
@@ -570,14 +566,15 @@ class Shuniu:
         threading.Thread(target=self.ack_worker).start()
         for i in range(self.conf["concurrency"]):
             queue = multiprocessing.Queue()
-            worker = multiprocessing.Process(target=self.worker, args=(queue, i,))
-            self.worker_pool[i] = (worker, queue)
+            flag = multiprocessing.Manager().Value('i', 0)
+            worker = multiprocessing.Process(target=self.worker, args=(queue, i, flag,))
+            self.worker_pool[i] = (worker, queue, flag)
             worker.start()
         threading.Thread(target=self.daemon).start()
         self.print_banners()
         while 1:
-            for wid, (worker, queue) in self.worker_pool.items():
-                if queue.empty():
+            for wid, (worker, queue, flag) in self.worker_pool.items():
+                if flag.value == 0:
                     try:
                         task = self.rpc.consume(wid)
                     except IOError:
@@ -594,7 +591,6 @@ class Shuniu:
                         self.logger.info(f"Received task: {self.rpc.task_map[task_type]}[{task_id}]")
                         self.state[task_type] = self.state.setdefault(task_type, 0) + 1
                         queue.put((kwargs, task_id, src, task_type))
-                        queue.put(EndFlag)
             else:
                 continue
 
