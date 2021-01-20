@@ -590,7 +590,6 @@ class Shuniu:
                         stdin.put(False)
                     break
             else:
-                continue
                 time.sleep(2)
 
 
