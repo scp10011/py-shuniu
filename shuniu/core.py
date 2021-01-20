@@ -452,12 +452,13 @@ class Shuniu:
     def signature(self, name: str) -> "Signature":
         return Signature(self.rpc, name)
 
-    def worker(self, stdin: multiprocessing.Queue, stdout: multiprocessing.Queue, wid: int):
+    def worker(self, stdin: multiprocessing.Queue, wid: int):
         self.fork()
         while 1:
-            stdout.put(1)
             with contextlib.suppress(Exception):
                 task = stdin.get()
+                if not task:
+                    continue
                 kwargs, task_id, src, task_type = task
                 worker_class = self.task_registered_map[task_type]
                 if not worker_class.forked:
@@ -548,13 +549,13 @@ class Shuniu:
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.ignore_result}")
 
     def daemon(self):
-        for wid, (worker, stdin, stdout) in self.worker_pool.items():
+        for wid, (worker, stdin) in self.worker_pool.items():
             try:
                 worker.join(timeout=0)
                 if not worker.is_alive():
                     self.logger.error(f"worker {wid} is down..")
-                    worker = multiprocessing.Process(target=self.worker, args=(stdin, stdout, wid,))
-                    self.worker_pool[wid] = (worker, stdin, stdout)
+                    worker = multiprocessing.Process(target=self.worker, args=(stdin, wid,))
+                    self.worker_pool[wid] = (worker, stdin)
             except Exception:
                 pass
         time.sleep(1)
@@ -566,37 +567,31 @@ class Shuniu:
         threading.Thread(target=self.ack_worker).start()
         for i in range(self.conf["concurrency"]):
             stdin = multiprocessing.Queue()
-            stdout = multiprocessing.Queue()
-            worker = multiprocessing.Process(target=self.worker, args=(stdin, stdout, i,))
-            self.worker_pool[i] = (worker, stdin, stdout)
+            worker = multiprocessing.Process(target=self.worker, args=(stdin, i,))
+            self.worker_pool[i] = (worker, stdin)
             worker.start()
         threading.Thread(target=self.daemon).start()
         self.print_banners()
         while 1:
-            for wid, (worker, stdin, stdout) in self.worker_pool.items():
-                try:
-                    stdout.get_nowait()
-                except multiprocessing.queues.Empty:
-                    continue
-                try:
-                    task = self.rpc.consume(wid)
-                except IOError:
-                    self.logger.error("Retry after connection loss...")
-                    stdout.put(1)
-                    time.sleep(2)
-                    break
-                except Exception:
-                    self.logger.exception("Failed to get task")
-                    stdout.put(1)
-                    break
-                if task is EmptyData:
-                    stdout.put(1)
-                    break
-                else:
-                    kwargs, task_id, src, task_type = task
-                    self.logger.info(f"Received task: {self.rpc.task_map[task_type]}[{task_id}]")
-                    self.state[task_type] = self.state.setdefault(task_type, 0) + 1
-                    stdin.put((kwargs, task_id, src, task_type))
+            for wid, (worker, stdin) in self.worker_pool.items():
+                if stdin.qsize() == 0 and stdin.empty():
+                    try:
+                        task = self.rpc.consume(wid)
+                    except IOError:
+                        self.logger.error("Retry after connection loss...")
+                        time.sleep(2)
+                        break
+                    except Exception:
+                        self.logger.exception("Failed to get task")
+                        break
+                    if task is EmptyData:
+                        break
+                    else:
+                        kwargs, task_id, src, task_type = task
+                        self.logger.info(f"Received task: {self.rpc.task_map[task_type]}[{task_id}]")
+                        self.state[task_type] = self.state.setdefault(task_type, 0) + 1
+                        stdin.put((kwargs, task_id, src, task_type))
+                        stdin.put(False)
             else:
                 continue
 
