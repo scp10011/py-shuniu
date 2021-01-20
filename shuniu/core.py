@@ -571,7 +571,6 @@ class Shuniu:
         self.print_banners()
         while 1:
             for wid, (worker, stdin) in self.worker_pool.items():
-                self.logger.info(f"Queue: {wid}, size: {stdin.qsize()}, empty: {stdin.empty()}")
                 if stdin.qsize() == 0 and stdin.empty():
                     try:
                         task = self.rpc.consume(wid)
