@@ -14,6 +14,7 @@ import pickle
 import logging
 import binascii
 import functools
+import contextlib
 import threading
 import urllib.parse
 import multiprocessing
@@ -457,51 +458,52 @@ class Shuniu:
     def worker(self, queue: multiprocessing.Queue, wid: int):
         self.fork()
         while 1:
-            task = queue.get()
-            if task is EndFlag:
-                continue
-            kwargs, task_id, src, task_type = task
-            worker_class = self.task_registered_map[task_type]
-            if not worker_class.forked:
-                worker_class.__init_socket__()
-                worker_class.forked = True
-            worker_class.mock(task_id=task_id, src=src, wid=wid)
-            exc_type, exc_value, exc_traceback = None, None, None
-            start_time = time.time()
-            self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
-            for i in range(worker_class.retry):
-                try:
-                    result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
-                    break
-                except worker_class.autoretry_for:
-                    self.logger.exception(f"Resumable retry {i + 1}/{worker_class.retry} time",
-                                          extra={"wid": wid})
-                    exc_type, exc_value, exc_traceback = sys.exc_info()
+            with contextlib.suppress(Exception):
+                task = queue.get()
+                if task is EndFlag:
                     continue
-                except:
-                    self.logger.exception("Unknown exception", extra={"wid": wid})
-                    exc_type, exc_value, exc_traceback = sys.exc_info()
-                    break
-            runner_time = time.time() - start_time
-            if exc_type:
-                self.rpc.ack(task_id, fail=True)
-                worker_class.on_failure(exc_type, exc_value, exc_traceback)
-                self.logger.info(
-                    f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}", extra={"wid": wid})
-            else:
-                self.rpc.ack(task_id)
-                if not worker_class.ignore_result:
-                    self.rpc.set(
-                        task_id,
-                        src,
-                        payload=result or {},
-                        serialization=worker_class.serialization,
-                        compression=worker_class.compression
-                    )
-                self.logger.info(
-                    f"Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}",
-                    extra={"wid": wid})
-                worker_class.on_success()
+                kwargs, task_id, src, task_type = task
+                worker_class = self.task_registered_map[task_type]
+                if not worker_class.forked:
+                    worker_class.__init_socket__()
+                    worker_class.forked = True
+                worker_class.mock(task_id=task_id, src=src, wid=wid)
+                exc_type, exc_value, exc_traceback = None, None, None
+                start_time = time.time()
+                self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
+                for i in range(worker_class.retry):
+                    try:
+                        result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
+                        break
+                    except worker_class.autoretry_for:
+                        self.logger.exception(f"Resumable retry {i + 1}/{worker_class.retry} time",
+                                              extra={"wid": wid})
+                        exc_type, exc_value, exc_traceback = sys.exc_info()
+                        continue
+                    except:
+                        self.logger.exception("Unknown exception", extra={"wid": wid})
+                        exc_type, exc_value, exc_traceback = sys.exc_info()
+                        break
+                runner_time = time.time() - start_time
+                if exc_type:
+                    self.rpc.ack(task_id, fail=True)
+                    worker_class.on_failure(exc_type, exc_value, exc_traceback)
+                    self.logger.info(
+                        f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}", extra={"wid": wid})
+                else:
+                    self.rpc.ack(task_id)
+                    if not worker_class.ignore_result:
+                        self.rpc.set(
+                            task_id,
+                            src,
+                            payload=result or {},
+                            serialization=worker_class.serialization,
+                            compression=worker_class.compression
+                        )
+                    self.logger.info(
+                        f"Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}",
+                        extra={"wid": wid})
+                    worker_class.on_success()
 
     def ack_worker(self):
         ACK_MODE = {"ack": self.rpc.ack, "set": self.rpc.set}
@@ -549,6 +551,18 @@ class Shuniu:
         for tid, task in self.task_registered_map.items():
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.ignore_result}")
 
+    def daemon(self):
+        for wid, (worker, queue) in self.worker_pool.items():
+            try:
+                worker.join(timeout=0)
+                if not worker.is_alive():
+                    self.logger.error(f"worker {wid} is down..")
+                    worker = multiprocessing.Process(target=self.worker, args=(queue, wid,))
+                    self.worker_pool[wid] = (worker, queue)
+            except Exception:
+                pass
+        time.sleep(1)
+
     def start(self):
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         if self.conf["worker_enable_remote_control"]:
@@ -559,6 +573,7 @@ class Shuniu:
             worker = multiprocessing.Process(target=self.worker, args=(queue, i,))
             self.worker_pool[i] = (worker, queue)
             worker.start()
+        threading.Thread(target=self.daemon).start()
         self.print_banners()
         while 1:
             for wid, (worker, queue) in self.worker_pool.items():
