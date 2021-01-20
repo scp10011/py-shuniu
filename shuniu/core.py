@@ -18,6 +18,7 @@ import contextlib
 import threading
 import urllib.parse
 import multiprocessing
+import multiprocessing.queues
 
 from typing import Dict, Sequence, Any, Tuple
 
@@ -451,7 +452,7 @@ class Shuniu:
     def signature(self, name: str) -> "Signature":
         return Signature(self.rpc, name)
 
-    def worker(self, queue: multiprocessing.SimpleQueue, wid: int):
+    def worker(self, queue: multiprocessing.Queue, wid: int):
         self.fork()
         while 1:
             with contextlib.suppress(Exception):
@@ -565,7 +566,7 @@ class Shuniu:
             threading.Thread(target=self.manager_worker).start()
         threading.Thread(target=self.ack_worker).start()
         for i in range(self.conf["concurrency"]):
-            queue = multiprocessing.SimpleQueue()
+            queue = multiprocessing.Queue()
             worker = multiprocessing.Process(target=self.worker, args=(queue, i,))
             self.worker_pool[i] = (worker, queue)
             worker.start()
@@ -573,7 +574,10 @@ class Shuniu:
         self.print_banners()
         while 1:
             for wid, (worker, queue) in self.worker_pool.items():
-                if queue.empty():
+                try:
+                    tmp = queue.get_nowait()
+                    queue.put(tmp)
+                except multiprocessing.queues.Empty:
                     try:
                         task = self.rpc.consume(wid)
                     except IOError:
