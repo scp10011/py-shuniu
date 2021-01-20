@@ -298,8 +298,10 @@ class shuniuRPC:
                 raise ValueError(
                     "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)) from None
 
-    def ack(self, task_id: str, fail: bool = False):
-        method = "fail" if fail else "over"
+    def ack(self, task_id: str, fail: bool = False, retry: bool = False):
+        if retry and fail:
+            raise TypeError
+        method = "fail" if fail else "retry" if retry else "over"
         with self.__api_call__("PUT", f"/task/ack/{task_id}/{method}") as r:
             if r.ok and r.json().get("code") == 0:
                 return
@@ -465,30 +467,20 @@ class Shuniu:
                     worker_class.__init_socket__()
                     worker_class.forked = True
                 worker_class.mock(task_id=task_id, src=src, wid=wid)
-                exc_type, exc_value, exc_traceback = None, None, None
                 start_time = time.time()
+                normal = False
                 self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
-                for i in range(worker_class.retry):
-                    try:
-                        result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
-                        break
-                    except worker_class.autoretry_for:
-                        self.logger.exception(f"Resumable retry {i + 1}/{worker_class.retry} time",
-                                              extra={"wid": wid})
-                        exc_type, exc_value, exc_traceback = sys.exc_info()
-                        continue
-                    except:
-                        self.logger.exception("Unknown exception", extra={"wid": wid})
-                        exc_type, exc_value, exc_traceback = sys.exc_info()
-                        break
-                runner_time = time.time() - start_time
-                if exc_type:
-                    self.rpc.ack(task_id, fail=True)
-                    worker_class.on_failure(exc_type, exc_value, exc_traceback)
-                    self.logger.info(
-                        f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}", extra={"wid": wid})
-                else:
+                try:
+                    result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
                     self.rpc.ack(task_id)
+                    normal = True
+                except worker_class.autoretry_for:
+                    self.rpc.ack(task_id, retry=True)
+                except Exception:
+                    self.rpc.ack(task_id, fail=True)
+                    self.logger.exception("Unknown exception", extra={"wid": wid})
+                runner_time = time.time() - start_time
+                if normal:
                     if not worker_class.ignore_result:
                         self.rpc.set(
                             task_id,
@@ -501,6 +493,11 @@ class Shuniu:
                         f"Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}",
                         extra={"wid": wid})
                     worker_class.on_success()
+                else:
+                    self.logger.info(
+                        f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}",
+                        extra={"wid": wid})
+                    worker_class.on_failure(*sys.exc_info())
 
     def ack_worker(self):
         ACK_MODE = {"ack": self.rpc.ack, "set": self.rpc.set}
@@ -574,6 +571,7 @@ class Shuniu:
         self.print_banners()
         while 1:
             for wid, (worker, stdin) in self.worker_pool.items():
+                self.logger.info(f"Queue: {wid}, size: {stdin.qsize()}, empty: {stdin.empty()}")
                 if stdin.qsize() == 0 and stdin.empty():
                     try:
                         task = self.rpc.consume(wid)
@@ -592,6 +590,7 @@ class Shuniu:
                         self.state[task_type] = self.state.setdefault(task_type, 0) + 1
                         stdin.put((kwargs, task_id, src, task_type))
                         stdin.put(False)
+
             else:
                 continue
 
