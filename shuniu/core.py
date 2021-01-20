@@ -455,8 +455,8 @@ class Shuniu:
     def worker(self, stdin: multiprocessing.Queue, stdout: multiprocessing.Queue, wid: int):
         self.fork()
         while 1:
+            stdout.put(1)
             with contextlib.suppress(Exception):
-                stdout.put(1)
                 task = stdin.get()
                 kwargs, task_id, src, task_type = task
                 worker_class = self.task_registered_map[task_type]
@@ -582,12 +582,15 @@ class Shuniu:
                     task = self.rpc.consume(wid)
                 except IOError:
                     self.logger.error("Retry after connection loss...")
+                    stdout.put(1)
                     time.sleep(2)
                     break
                 except Exception:
                     self.logger.exception("Failed to get task")
+                    stdout.put(1)
                     break
                 if task is EmptyData:
+                    stdout.put(1)
                     break
                 else:
                     kwargs, task_id, src, task_type = task
