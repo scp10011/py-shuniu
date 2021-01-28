@@ -574,7 +574,7 @@ class Shuniu:
         self.fork()
         task_end = set()
         while 1:
-            with contextlib.suppress(Exception):
+            try:
                 task = stdin.get()
                 if not task:
                     continue
@@ -625,6 +625,8 @@ class Shuniu:
                             extra={"wid": wid},
                         )
                         worker_class.on_failure(*sys.exc_info())
+            except Exception:
+                self.logger.exception("worker collapse")
 
     def ack_worker(self):
         ACK_MODE = {"ack": self.rpc.ack, "set": self.rpc.set}
