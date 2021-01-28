@@ -86,5 +86,5 @@
   <component name="PreferredVcsStorage">
     <preferredVcsName>ApexVCS</preferredVcsName>
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.8 (.mac-venv)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.8.5 (sftp://scp10011@192.168.41.84:22/usr/bin/python3)" project-jdk-type="Python SDK" />
 </project>
