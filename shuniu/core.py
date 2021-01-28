@@ -605,8 +605,8 @@ class Shuniu:
                         self.rpc.ack(task_id, fail=True)
                         self.logger.exception("Unknown exception", extra={"wid": wid})
                     runner_time = time.time() - start_time
-                    result = {} if isinstance(result, type(None)) else result
                     if normal:
+                        result = {} if isinstance(result, type(None)) else result
                         if not worker_class.ignore_result:
                             self.rpc.set(
                                 task_id,
