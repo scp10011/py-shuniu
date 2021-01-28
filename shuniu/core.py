@@ -705,7 +705,7 @@ class Shuniu:
                     self.logger.info(
                         f"Get lock status: {locked} from worker: {wid}, Queue: {stdin.qsize()}"
                     )
-                    if not locked:
+                    if not locked and stdin.qsize() == 0:
                         continue
                     try:
                         task = self.rpc.consume(wid)
@@ -726,7 +726,6 @@ class Shuniu:
                             stdin.put_nowait((kwargs, task_id, src, task_type))
                         except queue.Full:
                             continue
-                    break
             else:
                 time.sleep(2)
 
