@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import os
+import queue
 import re
 import bz2
 import gzip
@@ -462,6 +463,14 @@ class shuniuRPC:
                 )
             ) from None
 
+@contextlib.contextmanager
+def nonblocking(lock):
+    locked = lock.acquire(False)
+    try:
+        yield locked
+    finally:
+        if locked:
+            lock.release()
 
 def urlparse(uri) -> Dict:
     obj = urllib.parse.urlparse(uri)
@@ -565,9 +574,9 @@ class Shuniu:
         while 1:
             with contextlib.suppress(Exception):
                 task = stdin.get()
+                if not task:
+                    continue
                 with lock:
-                    if not task:
-                        continue
                     kwargs, task_id, src, task_type = task
                     if task_id in task_end:
                         continue
@@ -681,7 +690,7 @@ class Shuniu:
             threading.Thread(target=self.manager_worker).start()
         threading.Thread(target=self.ack_worker).start()
         for i in range(self.conf["concurrency"]):
-            stdin = multiprocessing.Queue()
+            stdin = multiprocessing.Queue(maxsize=1)
             lock = multiprocessing.Lock()
             worker = multiprocessing.Process(target=self.worker, args=(stdin, i, lock))
             self.worker_pool[i] = (worker, stdin, lock)
@@ -690,8 +699,9 @@ class Shuniu:
         self.print_banners()
         while 1:
             for wid, (worker, stdin, lock) in self.worker_pool.items():
-                if lock.acquire(False):
-                    lock.release()
+                with nonblocking(lock) as locked:
+                    if not locked:
+                        continue
                     try:
                         task = self.rpc.consume(wid)
                     except IOError:
@@ -707,7 +717,10 @@ class Shuniu:
                             f"Received task: {self.rpc.task_map[task_type]}[{task_id}]"
                         )
                         self.state[task_type] = self.state.setdefault(task_type, 0) + 1
-                        stdin.put((kwargs, task_id, src, task_type))
+                        try:
+                            stdin.put_nowait((kwargs, task_id, src, task_type))
+                        except queue.Full:
+                            continue
                     break
             else:
                 time.sleep(2)
