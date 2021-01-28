@@ -702,9 +702,6 @@ class Shuniu:
         while 1:
             for wid, (worker, stdin, lock) in self.worker_pool.items():
                 with nonblocking(lock) as locked:
-                    self.logger.info(
-                        f"Get lock status: {locked} from worker: {wid}, Queue: {stdin.qsize()}"
-                    )
                     if not locked and stdin.qsize() == 0:
                         continue
                     try:
