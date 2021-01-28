@@ -572,7 +572,7 @@ class Shuniu:
         self, stdin: multiprocessing.Queue, wid: int, lock: multiprocessing.Lock
     ):
         self.fork()
-        task_end = set()
+        self.logger.info("Fock shuniu connect")
         while 1:
             try:
                 task = stdin.get()
@@ -705,7 +705,7 @@ class Shuniu:
         while 1:
             for wid, (worker, stdin, lock) in self.worker_pool.items():
                 with nonblocking(lock) as locked:
-                    if not locked and stdin.qsize() == 0:
+                    if not locked or stdin.qsize() != 0:
                         continue
                     try:
                         task = self.rpc.consume(wid)
