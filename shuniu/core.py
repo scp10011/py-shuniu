@@ -463,6 +463,7 @@ class shuniuRPC:
                 )
             ) from None
 
+
 @contextlib.contextmanager
 def nonblocking(lock):
     locked = lock.acquire(False)
@@ -471,6 +472,7 @@ def nonblocking(lock):
     finally:
         if locked:
             lock.release()
+
 
 def urlparse(uri) -> Dict:
     obj = urllib.parse.urlparse(uri)
@@ -700,6 +702,9 @@ class Shuniu:
         while 1:
             for wid, (worker, stdin, lock) in self.worker_pool.items():
                 with nonblocking(lock) as locked:
+                    self.logger.info(
+                        f"Get lock status: {locked} from worker: {wid}, Queue: {stdin.qsize()}"
+                    )
                     if not locked:
                         continue
                     try:
@@ -714,7 +719,7 @@ class Shuniu:
                     if task is not EmptyData:
                         kwargs, task_id, src, task_type = task
                         self.logger.info(
-                            f"Received task: {self.rpc.task_map[task_type]}[{task_id}]"
+                            f"Received task to worker-{wid}: {self.rpc.task_map[task_type]}[{task_id}]"
                         )
                         self.state[task_type] = self.state.setdefault(task_type, 0) + 1
                         try:
