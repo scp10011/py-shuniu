@@ -561,13 +561,16 @@ class Shuniu:
         self, stdin: multiprocessing.Queue, wid: int, lock: multiprocessing.Lock
     ):
         self.fork()
+        task_end = set()
         while 1:
             with contextlib.suppress(Exception):
                 task = stdin.get()
-                if not task:
-                    continue
                 with lock:
+                    if not task:
+                        continue
                     kwargs, task_id, src, task_type = task
+                    if task_id in task_end:
+                        continue
                     worker_class = self.task_registered_map[task_type]
                     if not worker_class.forked:
                         worker_class.__init_socket__()
@@ -582,6 +585,7 @@ class Shuniu:
                     try:
                         result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
                         self.rpc.ack(task_id)
+                        task_end = {task_id}
                         normal = True
                     except worker_class.autoretry_for:
                         self.rpc.ack(task_id, retry=True)
