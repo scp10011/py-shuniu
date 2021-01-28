@@ -572,7 +572,8 @@ class Shuniu:
         self, stdin: multiprocessing.Queue, wid: int, lock: multiprocessing.Lock
     ):
         self.fork()
-        self.logger.info("Fock shuniu connect")
+        task_end = set()
+        self.logger.info("Fork shuniu connect")
         while 1:
             try:
                 task = stdin.get()
