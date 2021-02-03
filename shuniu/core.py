@@ -527,7 +527,6 @@ class Shuniu:
         self.rpc = shuniuRPC(**conn_obj, **kwargs)
         self.rpc.login()
         self.rpc.get_task_list()
-        self.ack_queue = multiprocessing.Queue()
         self.task_registered_map: Dict[int, Task] = {}
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
         self.worker_pool: Dict[int, Tuple] = {}
@@ -576,8 +575,10 @@ class Shuniu:
         self.logger.info("Fork shuniu connect")
         while 1:
             try:
-                task = stdin.get()
-                if not task:
+                try:
+                    if not (task := stdin.get(timeout=10)):
+                        continue
+                except queue.Empty:
                     continue
                 with lock:
                     kwargs, task_id, src, task_type = task
@@ -628,19 +629,6 @@ class Shuniu:
                         worker_class.on_failure(*sys.exc_info())
             except Exception:
                 self.logger.exception("worker collapse")
-
-    def ack_worker(self):
-        ACK_MODE = {"ack": self.rpc.ack, "set": self.rpc.set}
-        while 1:
-            try:
-                mod, args, kwargs = self.ack_queue.get()
-            except:
-                continue
-            try:
-                ACK_MODE[mod](*args, **kwargs)
-            except:
-                self.ack_queue.put((mod, args, kwargs))
-                self.logger.exception("ack error")
 
     def manager(self, kws, instruction):
         self.control[instruction](*kws["args"], **kws["kwargs"])
@@ -694,7 +682,6 @@ class Shuniu:
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         if self.conf["worker_enable_remote_control"]:
             threading.Thread(target=self.manager_worker).start()
-        threading.Thread(target=self.ack_worker).start()
         for i in range(self.conf["concurrency"]):
             stdin = multiprocessing.Queue(maxsize=1)
             lock = multiprocessing.Lock()
@@ -726,6 +713,9 @@ class Shuniu:
                         try:
                             stdin.put_nowait((kwargs, task_id, src, task_type))
                         except queue.Full:
+                            self.logger.error(
+                                "Failed Put {self.rpc.task_map[task_type]}[{task_id}] to worker-{wid} Full"
+                            )
                             continue
             else:
                 time.sleep(2)
