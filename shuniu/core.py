@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 
 import os
-import queue
 import re
 import bz2
 import gzip
@@ -19,6 +18,7 @@ import functools
 import contextlib
 import threading
 import urllib.parse
+import queue
 import multiprocessing
 import multiprocessing.queues
 
@@ -683,9 +683,10 @@ class Shuniu:
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         if self.conf["worker_enable_remote_control"]:
             threading.Thread(target=self.manager_worker).start()
+        manager = multiprocessing.Manager()
         for i in range(self.conf["concurrency"]):
-            stdin = multiprocessing.Queue(maxsize=1)
-            lock = multiprocessing.Lock()
+            stdin = manager.Queue(maxsize=1)
+            lock = manager.Lock()
             worker = multiprocessing.Process(target=self.worker, args=(stdin, i, lock))
             self.worker_pool[i] = (worker, stdin, lock)
             worker.start()
