@@ -603,6 +603,7 @@ class Shuniu:
                         normal = True
                     except worker_class.autoretry_for:
                         self.rpc.ack(task_id, retry=True)
+                        self.logger.exception("Autoretry exception", extra={"wid": wid})
                     except Exception:
                         self.rpc.ack(task_id, fail=True)
                         self.logger.exception("Unknown exception", extra={"wid": wid})
