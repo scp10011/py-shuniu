@@ -576,7 +576,8 @@ class Shuniu:
         while 1:
             try:
                 try:
-                    if not (task := stdin.get(timeout=10)):
+                    task = stdin.get(timeout=10)
+                    if not task:
                         continue
                 except queue.Empty:
                     continue
