@@ -755,7 +755,7 @@ class AsyncResult:
         result = self.rpc.get(self.task_id)
         while result == EmptyData:
             result = self.rpc.get(self.task_id)
-        if "__traceback__" in result:
+        if isinstance(result, dict) and "__traceback__" in result:
             raise Exception(result["__traceback__"])
         return result
 
