@@ -5,6 +5,7 @@ import re
 import bz2
 import gzip
 import sys
+import traceback
 import zlib
 import time
 import uuid
@@ -596,15 +597,18 @@ class Shuniu:
                         f"Start {self.rpc.task_map[task_type]}[{task_id}]",
                         extra={"wid": wid},
                     )
+                    exc_info = None
                     try:
                         result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
                         self.rpc.ack(task_id)
                         task_end = {task_id}
                         normal = True
                     except worker_class.autoretry_for:
+                        exc_info = sys.exc_info()
                         self.rpc.ack(task_id, retry=True)
                         self.logger.exception("Autoretry exception", extra={"wid": wid})
                     except Exception:
+                        exc_info = sys.exc_info()
                         self.rpc.ack(task_id, fail=True)
                         self.logger.exception("Unknown exception", extra={"wid": wid})
                     runner_time = time.time() - start_time
@@ -624,11 +628,20 @@ class Shuniu:
                         )
                         worker_class.on_success()
                     else:
+                        if not worker_class.ignore_result:
+                            error = "".join(traceback.format_exception(*exc_info))
+                            self.rpc.set(
+                                task_id,
+                                src,
+                                payload={"__traceback__": error},
+                                serialization=worker_class.serialization,
+                                compression=worker_class.compression,
+                            )
                         self.logger.info(
                             f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}",
                             extra={"wid": wid},
                         )
-                        worker_class.on_failure(*sys.exc_info())
+                        worker_class.on_failure(*exc_info)
             except Exception:
                 self.logger.exception("worker collapse")
 
@@ -742,6 +755,8 @@ class AsyncResult:
         result = self.rpc.get(self.task_id)
         while result == EmptyData:
             result = self.rpc.get(self.task_id)
+        if "__traceback__" in result:
+            raise Exception(result["__traceback__"])
         return result
 
     def revoke(self) -> None:
