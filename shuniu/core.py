@@ -441,7 +441,6 @@ class shuniuRPC:
                 if data["code"] == 404:
                     return EmptyData
                 elif data["code"] == 0:
-                    print(data)
                     return (
                         decode_payload(data["payload"], data["type"]),
                         data["instruction"],
@@ -818,6 +817,9 @@ class Task:
 
     def apply_async(self, *args, **kwargs) -> AsyncResult:
         return self.app.rpc.apply_async(self.name, *args, **kwargs)
+
+    def broadcast(self, *args, **kwargs) -> AsyncResult:
+        return self.app.rpc.broadcast(self.name, *args, **kwargs)
 
     def on_failure(self, exc_type, exc_value, exc_traceback):
         pass
