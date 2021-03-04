@@ -744,6 +744,9 @@ class Signature:
     def apply_async(self, *args, **kwargs) -> "AsyncResult":
         return self.rpc.apply_async(self.name, *args, **kwargs)
 
+    def broadcast(self, *args, **kwargs) -> "AsyncResult":
+        return self.rpc.broadcast(self.name, *args, **kwargs)
+
 
 class AsyncResult:
     def __init__(self, task_id: str, rpc: shuniuRPC):
