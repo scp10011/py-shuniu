@@ -585,6 +585,7 @@ class Shuniu:
                     kwargs, task_id, src, task_type = task
                     if task_id in task_end:
                         continue
+                    task_name = self.rpc.task_map[task_type]
                     worker_class = self.task_registered_map[task_type]
                     if not worker_class.forked:
                         worker_class.__init_socket__()
@@ -622,7 +623,7 @@ class Shuniu:
                                 compression=worker_class.compression,
                             )
                         self.logger.info(
-                            f"Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}",
+                            f"Task {task_name}[{task_id}] succeeded in {runner_time}: {result}",
                             extra={"wid": wid},
                         )
                         worker_class.on_success()
@@ -637,7 +638,7 @@ class Shuniu:
                                 compression=worker_class.compression,
                             )
                         self.logger.info(
-                            f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}",
+                            f"Task {task_name}[{task_id}] failure in {runner_time}",
                             extra={"wid": wid},
                         )
                         worker_class.on_failure(*exc_info)
@@ -721,15 +722,16 @@ class Shuniu:
                         break
                     if task is not EmptyData:
                         kwargs, task_id, src, task_type = task
+                        task_name = self.rpc.task_map[task_type]
                         self.logger.info(
-                            f"Received task to worker-{wid}: {self.rpc.task_map[task_type]}[{task_id}]"
+                            f"Received task to worker-{wid}: {task_name}[{task_id}]"
                         )
-                        self.state[task_type] = self.state.setdefault(task_type, 0) + 1
+                        self.state[task_name] = self.state.setdefault(task_type, 0) + 1
                         try:
                             stdin.put_nowait((kwargs, task_id, src, task_type))
                         except queue.Full:
                             self.logger.error(
-                                "Failed Put {self.rpc.task_map[task_type]}[{task_id}] to worker-{wid} Full"
+                                "Failed Put {task_name}[{task_id}] to worker-{wid} Full"
                             )
                             continue
             else:
@@ -821,7 +823,7 @@ class Task:
     def apply_async(self, *args, **kwargs) -> AsyncResult:
         return self.app.rpc.apply_async(self.name, *args, **kwargs)
 
-    def broadcast(self, *args, **kwargs) -> AsyncResult:
+    def broadcast(self, *args, **kwargs) -> Dict[str, str]:
         return self.app.rpc.broadcast(self.name, *args, **kwargs)
 
     def on_failure(self, exc_type, exc_value, exc_traceback):
