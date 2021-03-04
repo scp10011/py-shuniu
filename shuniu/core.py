@@ -726,7 +726,7 @@ class Shuniu:
                         self.logger.info(
                             f"Received task to worker-{wid}: {task_name}[{task_id}]"
                         )
-                        self.state[task_name] = self.state.setdefault(task_type, 0) + 1
+                        self.state[task_name] = self.state.setdefault(task_name, 0) + 1
                         try:
                             stdin.put_nowait((kwargs, task_id, src, task_type))
                         except queue.Full:
