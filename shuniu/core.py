@@ -529,9 +529,9 @@ class Shuniu:
         self.rpc.get_task_list()
         self.task_registered_map: Dict[int, Task] = {}
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
-        self.worker_pool: Dict[int, Tuple] = {}
+        self.worker_pool: Dict[int, Any] = {}
         self.control = {1: self.ping, 2: self.get_stats}
-        self.state = multiprocessing.Manager().dict()
+        self.state = {}
         self.logger = set_logging("Shuniu", **kwargs)
 
     def fork(self):
