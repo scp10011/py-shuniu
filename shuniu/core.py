@@ -531,7 +531,7 @@ class Shuniu:
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
         self.worker_pool: Dict[int, Tuple] = {}
         self.control = {1: self.ping, 2: self.get_stats}
-        self.state = {}
+        self.state = multiprocessing.Manager().dict()
         self.logger = set_logging("Shuniu", **kwargs)
 
     def fork(self):
@@ -567,81 +567,96 @@ class Shuniu:
     def signature(self, name: str) -> "Signature":
         return Signature(self.rpc, name)
 
-    def worker(
-        self, stdin: multiprocessing.Queue, wid: int, lock: multiprocessing.Lock
-    ):
+    def worker(self, wid: int):
+        def get_message():
+            try:
+                task = self.rpc.consume(wid)
+            except IOError:
+                self.logger.error("Retry after connection loss...")
+                time.sleep(2)
+                return False
+            except Exception:
+                self.logger.exception("Failed to get task")
+                return False
+            if task is not EmptyData:
+                task_name = self.rpc.task_map[task_type]
+                self.logger.info(
+                    f"Received task to worker-{wid}: {task_name}[{task_id}]"
+                )
+                self.state[task_name] = self.state.setdefault(task_name, 0) + 1
+                return task
+
         self.fork()
         task_end = set()
         self.logger.info("Fork shuniu connect")
         while 1:
             try:
                 try:
-                    task = stdin.get(timeout=10)
+                    task = get_message()
                     if not task:
                         continue
                 except queue.Empty:
                     continue
-                with lock:
-                    kwargs, task_id, src, task_type = task
-                    if task_id in task_end:
-                        continue
-                    task_name = self.rpc.task_map[task_type]
-                    worker_class = self.task_registered_map[task_type]
-                    if not worker_class.forked:
-                        worker_class.__init_socket__()
-                        worker_class.forked = True
-                    worker_class.mock(task_id=task_id, src=src, wid=wid)
-                    start_time = time.time()
-                    normal = False
+                kwargs, task_id, src, task_type = task
+                if task_id in task_end:
+                    continue
+                task_name = self.rpc.task_map[task_type]
+                worker_class = self.task_registered_map[task_type]
+                if not worker_class.forked:
+                    worker_class.__init_socket__()
+                    worker_class.forked = True
+                worker_class.mock(task_id=task_id, src=src, wid=wid)
+                start_time = time.time()
+                normal = False
+                self.logger.info(
+                    f"Start {self.rpc.task_map[task_type]}[{task_id}]",
+                    extra={"wid": wid},
+                )
+                exc_info = None
+                try:
+                    result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
+                    self.rpc.ack(task_id)
+                    task_end = {task_id}
+                    normal = True
+                except worker_class.autoretry_for:
+                    exc_info = sys.exc_info()
+                    self.rpc.ack(task_id, retry=True)
+                    self.logger.exception("Autoretry exception", extra={"wid": wid})
+                except Exception:
+                    exc_info = sys.exc_info()
+                    self.rpc.ack(task_id, fail=True)
+                    self.logger.exception("Unknown exception", extra={"wid": wid})
+                runner_time = time.time() - start_time
+                if normal:
+                    result = {} if isinstance(result, type(None)) else result
+                    if not worker_class.ignore_result:
+                        self.rpc.set(
+                            task_id,
+                            src,
+                            payload=result,
+                            serialization=worker_class.serialization,
+                            compression=worker_class.compression,
+                        )
                     self.logger.info(
-                        f"Start {self.rpc.task_map[task_type]}[{task_id}]",
+                        f"Task {task_name}[{task_id}] succeeded in {runner_time}: {result}",
                         extra={"wid": wid},
                     )
-                    exc_info = None
-                    try:
-                        result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
-                        self.rpc.ack(task_id)
-                        task_end = {task_id}
-                        normal = True
-                    except worker_class.autoretry_for:
-                        exc_info = sys.exc_info()
-                        self.rpc.ack(task_id, retry=True)
-                        self.logger.exception("Autoretry exception", extra={"wid": wid})
-                    except Exception:
-                        exc_info = sys.exc_info()
-                        self.rpc.ack(task_id, fail=True)
-                        self.logger.exception("Unknown exception", extra={"wid": wid})
-                    runner_time = time.time() - start_time
-                    if normal:
-                        result = {} if isinstance(result, type(None)) else result
-                        if not worker_class.ignore_result:
-                            self.rpc.set(
-                                task_id,
-                                src,
-                                payload=result,
-                                serialization=worker_class.serialization,
-                                compression=worker_class.compression,
-                            )
-                        self.logger.info(
-                            f"Task {task_name}[{task_id}] succeeded in {runner_time}: {result}",
-                            extra={"wid": wid},
+                    worker_class.on_success()
+                else:
+                    if not worker_class.ignore_result:
+                        error = "".join(traceback.format_exception(*exc_info))
+                        self.rpc.set(
+                            task_id,
+                            src,
+                            payload={"__traceback__": error},
+                            serialization=worker_class.serialization,
+                            compression=worker_class.compression,
                         )
-                        worker_class.on_success()
-                    else:
-                        if not worker_class.ignore_result:
-                            error = "".join(traceback.format_exception(*exc_info))
-                            self.rpc.set(
-                                task_id,
-                                src,
-                                payload={"__traceback__": error},
-                                serialization=worker_class.serialization,
-                                compression=worker_class.compression,
-                            )
-                        self.logger.info(
-                            f"Task {task_name}[{task_id}] failure in {runner_time}",
-                            extra={"wid": wid},
-                        )
-                        worker_class.on_failure(*exc_info)
+                    self.logger.info(
+                        f"Task {task_name}[{task_id}] failure in {runner_time}",
+                        extra={"wid": wid},
+                    )
+                    worker_class.on_failure(*exc_info)
             except Exception:
                 self.logger.exception("worker collapse")
 
@@ -697,45 +712,43 @@ class Shuniu:
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         if self.conf["worker_enable_remote_control"]:
             threading.Thread(target=self.manager_worker).start()
-        manager = multiprocessing.Manager()
-        for i in range(self.conf["concurrency"]):
-            stdin = manager.Queue(maxsize=1)
-            lock = manager.Lock()
-            worker = multiprocessing.Process(target=self.worker, args=(stdin, i, lock))
-            self.worker_pool[i] = (worker, stdin, lock)
-            worker.start()
-        threading.Thread(target=self.daemon).start()
         self.print_banners()
-        while 1:
-            for wid, (worker, stdin, lock) in self.worker_pool.items():
-                with nonblocking(lock) as locked:
-                    if not locked or stdin.qsize() != 0:
-                        continue
-                    try:
-                        task = self.rpc.consume(wid)
-                    except IOError:
-                        self.logger.error("Retry after connection loss...")
-                        time.sleep(2)
-                        break
-                    except Exception:
-                        self.logger.exception("Failed to get task")
-                        break
-                    if task is not EmptyData:
-                        kwargs, task_id, src, task_type = task
-                        task_name = self.rpc.task_map[task_type]
-                        self.logger.info(
-                            f"Received task to worker-{wid}: {task_name}[{task_id}]"
-                        )
-                        self.state[task_name] = self.state.setdefault(task_name, 0) + 1
-                        try:
-                            stdin.put_nowait((kwargs, task_id, src, task_type))
-                        except queue.Full:
-                            self.logger.error(
-                                "Failed Put {task_name}[{task_id}] to worker-{wid} Full"
-                            )
-                            continue
-            else:
-                time.sleep(2)
+        with multiprocessing.Pool(self.conf["concurrency"]) as pool:
+            for i in range(self.conf["concurrency"]):
+                pool.apply_async(func=self.worker)
+            # threading.Thread(target=self.daemon).start()
+            pool.close()
+            pool.join()
+        # while 1:
+        #     for wid, (worker, stdin, lock) in self.worker_pool.items():
+        #         with nonblocking(lock) as locked:
+        #             if not locked or stdin.qsize() != 0:
+        #                 continue
+        #             try:
+        #                 task = self.rpc.consume(wid)
+        #             except IOError:
+        #                 self.logger.error("Retry after connection loss...")
+        #                 time.sleep(2)
+        #                 break
+        #             except Exception:
+        #                 self.logger.exception("Failed to get task")
+        #                 break
+        #             if task is not EmptyData:
+        #                 kwargs, task_id, src, task_type = task
+        #                 task_name = self.rpc.task_map[task_type]
+        #                 self.logger.info(
+        #                     f"Received task to worker-{wid}: {task_name}[{task_id}]"
+        #                 )
+        #                 self.state[task_name] = self.state.setdefault(task_name, 0) + 1
+        #                 try:
+        #                     stdin.put_nowait((kwargs, task_id, src, task_type))
+        #                 except queue.Full:
+        #                     self.logger.error(
+        #                         "Failed Put {task_name}[{task_id}] to worker-{wid} Full"
+        #                     )
+        #                     continue
+        #     else:
+        #         time.sleep(2)
 
 
 class Signature:
