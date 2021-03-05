@@ -734,6 +734,7 @@ class Shuniu:
                                 "Failed Put {task_name}[{task_id}] to worker-{wid} Full"
                             )
                             continue
+                    time.sleep(2)
             else:
                 time.sleep(2)
 
