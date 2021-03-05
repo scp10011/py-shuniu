@@ -713,9 +713,10 @@ class Shuniu:
         if self.conf["worker_enable_remote_control"]:
             threading.Thread(target=self.manager_worker).start()
         self.print_banners()
-        with multiprocessing.Pool(self.conf["concurrency"]) as pool:
+        with multiprocessing.Pool(2) as pool:
             for i in range(self.conf["concurrency"]):
-                pool.apply_async(func=self.worker, args=(i, ))
+                self.logger.info(i)
+                pool.apply_async(func=self.worker, args=(i+1, ))
             # threading.Thread(target=self.daemon).start()
             pool.close()
             pool.join()
