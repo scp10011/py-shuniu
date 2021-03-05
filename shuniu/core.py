@@ -716,7 +716,7 @@ class Shuniu:
         with multiprocessing.Pool(2) as pool:
             for i in range(self.conf["concurrency"]):
                 self.logger.info(i)
-                pool.apply_async(func=self.worker, args=(i+1, ))
+                pool.apply_async(func=self.worker, args=(i+1, ), error_callback=self.logger.exception)
             # threading.Thread(target=self.daemon).start()
             pool.close()
             pool.join()
