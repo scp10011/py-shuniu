@@ -715,7 +715,7 @@ class Shuniu:
         self.print_banners()
         with multiprocessing.Pool(self.conf["concurrency"]) as pool:
             for i in range(self.conf["concurrency"]):
-                pool.apply_async(func=self.worker)
+                pool.apply_async(func=self.worker, args=(i, ))
             # threading.Thread(target=self.daemon).start()
             pool.close()
             pool.join()
