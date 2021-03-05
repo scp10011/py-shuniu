@@ -695,15 +695,13 @@ class Shuniu:
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.ignore_result}")
 
     def daemon(self):
-        for wid, (worker, stdin, lock) in self.worker_pool.items():
+        for wid, worker in self.worker_pool.items():
             try:
                 worker.join(timeout=0)
                 if not worker.is_alive():
                     self.logger.error(f"worker {wid} is down..")
-                    worker = multiprocessing.Process(
-                        target=self.worker, args=(stdin, wid, lock)
-                    )
-                    self.worker_pool[wid] = (worker, stdin)
+                    worker = multiprocessing.Process(target=self.worker, args=(wid,))
+                    self.worker_pool[wid] = worker
             except Exception:
                 pass
         time.sleep(1)
@@ -713,13 +711,10 @@ class Shuniu:
         if self.conf["worker_enable_remote_control"]:
             threading.Thread(target=self.manager_worker).start()
         self.print_banners()
-        with multiprocessing.Pool(2) as pool:
-            for i in range(self.conf["concurrency"]):
-                self.logger.info(i)
-                pool.apply_async(func=self.worker, args=(i+1, ), error_callback=self.logger.exception)
-            # threading.Thread(target=self.daemon).start()
-            pool.close()
-            pool.join()
+        for wid in range(self.conf["concurrency"]):
+            worker = multiprocessing.Process(target=self.worker, args=(wid,))
+            self.worker_pool[wid] = worker
+        self.daemon()
         # while 1:
         #     for wid, (worker, stdin, lock) in self.worker_pool.items():
         #         with nonblocking(lock) as locked:
