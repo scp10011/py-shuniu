@@ -532,6 +532,7 @@ class Shuniu:
         self.worker_pool: Dict[int, Tuple] = {}
         self.control = {1: self.ping, 2: self.get_stats}
         self.state = {}
+        self.perform = {}
         self.logger = set_logging("Shuniu", **kwargs)
 
     def fork(self):
@@ -543,7 +544,7 @@ class Shuniu:
         return True
 
     def get_stats(self, *args, **kwargs):
-        return self.state
+        return {"history": self.state, "run": self.perform}
 
     def task(self, *args, **kwargs):
         if len(args) == 1 and isinstance(args, type(abs)):
@@ -727,6 +728,7 @@ class Shuniu:
                             f"Received task to worker-{wid}: {task_name}[{task_id}]"
                         )
                         self.state[task_name] = self.state.setdefault(task_name, 0) + 1
+                        self.perform[wid] = task_id
                         try:
                             stdin.put_nowait((kwargs, task_id, src, task_type))
                         except queue.Full:
@@ -734,6 +736,8 @@ class Shuniu:
                                 "Failed Put {task_name}[{task_id}] to worker-{wid} Full"
                             )
                             continue
+                    else:
+                        self.perform[wid] = None
                     time.sleep(2)
             else:
                 time.sleep(2)
