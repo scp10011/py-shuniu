@@ -712,6 +712,7 @@ class Shuniu:
                 with nonblocking(lock) as locked:
                     if not locked or stdin.qsize() != 0:
                         continue
+                    self.perform[wid] = None
                     try:
                         task = self.rpc.consume(wid)
                     except IOError:
@@ -736,8 +737,6 @@ class Shuniu:
                                 "Failed Put {task_name}[{task_id}] to worker-{wid} Full"
                             )
                             continue
-                    else:
-                        self.perform[wid] = None
                     time.sleep(2)
             else:
                 time.sleep(2)
