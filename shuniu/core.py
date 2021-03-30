@@ -434,6 +434,61 @@ class shuniuRPC:
                     )
                 ) from None
 
+    def pause(self, task_id: str):
+        with self.__api_call__("POST", f"/task/pause/{task_id}") as r:
+            if r.ok and r.json().get("code") == 0:
+                return
+            else:
+                raise ValueError(
+                    "Requests Error: {}".format(
+                        r.ok and r.json().get("code", "") or r.status_code
+                    )
+                ) from None
+
+    def restore(self, task_id: str):
+        with self.__api_call__("DELETE", f"/task/pause/{task_id}") as r:
+            if r.ok and r.json().get("code") == 0:
+                return
+            else:
+                raise ValueError(
+                    "Requests Error: {}".format(
+                        r.ok and r.json().get("code", "") or r.status_code
+                    )
+                ) from None
+
+    def many_revoke(self, tids):
+        with self.__api_call__("DELETE", f"/task/revoke", data={"eid": tids}) as r:
+            if r.ok and r.json().get("code") == 0:
+                return r.json().get("state")
+            else:
+                raise ValueError(
+                    "Requests Error: {}".format(
+                        r.ok and r.json().get("code", "") or r.status_code
+                    )
+                ) from None
+
+    def many_pause(self, tids):
+        with self.__api_call__("POST", f"/task/pause", data={"eid": tids}) as r:
+            if r.ok and r.json().get("code") == 0:
+                return r.json().get("state")
+            else:
+                raise ValueError(
+                    "Requests Error: {}".format(
+                        r.ok and r.json().get("code", "") or r.status_code
+                    )
+                ) from None
+
+    def many_restore(self, tids):
+        with self.__api_call__("DELETE", f"/task/pause", data={"eid": tids}) as r:
+            if r.ok and r.json().get("code") == 0:
+                return r.json().get("state")
+            else:
+                raise ValueError(
+                    "Requests Error: {}".format(
+                        r.ok and r.json().get("code", "") or r.status_code
+                    )
+                ) from None
+
     def manager(self):
         with self.__api_call__("GET", "/manager") as r:
             if r.ok:
@@ -711,6 +766,8 @@ class Shuniu:
             for wid, (worker, stdin, lock) in self.worker_pool.items():
                 with nonblocking(lock) as locked:
                     if not locked or stdin.qsize() != 0:
+                        if locked:
+                            print(stdin.qsize())
                         continue
                     self.perform[wid] = None
                     try:
@@ -737,7 +794,6 @@ class Shuniu:
                                 "Failed Put {task_name}[{task_id}] to worker-{wid} Full"
                             )
                             continue
-                    time.sleep(2)
             else:
                 time.sleep(2)
 
@@ -769,6 +825,12 @@ class AsyncResult:
 
     def revoke(self) -> None:
         self.rpc.revoke(self.task_id)
+
+    def pause(self) -> None:
+        self.rpc.pause(self.task_id)
+
+    def restore(self) -> None:
+        self.rpc.restore(self.task_id)
 
     def __repr__(self):
         return f"<AsyncResult {self.task_id} at {hex(id(self))}>"
