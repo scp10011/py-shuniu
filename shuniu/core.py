@@ -435,7 +435,7 @@ class shuniuRPC:
                 ) from None
 
     def pause(self, task_id: str):
-        with self.__api_call__("POST", f"/task/pause/{task_id}") as r:
+        with self.__api_call__("PUT", f"/task/pause/{task_id}") as r:
             if r.ok and r.json().get("code") == 0:
                 return
             else:
@@ -446,7 +446,7 @@ class shuniuRPC:
                 ) from None
 
     def restore(self, task_id: str):
-        with self.__api_call__("DELETE", f"/task/pause/{task_id}") as r:
+        with self.__api_call__("PUT", f"/task/restore/{task_id}") as r:
             if r.ok and r.json().get("code") == 0:
                 return
             else:
@@ -457,7 +457,7 @@ class shuniuRPC:
                 ) from None
 
     def many_revoke(self, tids):
-        with self.__api_call__("DELETE", f"/task/revoke", data={"eid": tids}) as r:
+        with self.__api_call__("POST", f"/task/revoke", data={"eid": tids}) as r:
             if r.ok and r.json().get("code") == 0:
                 return r.json().get("state")
             else:
@@ -479,7 +479,7 @@ class shuniuRPC:
                 ) from None
 
     def many_restore(self, tids):
-        with self.__api_call__("DELETE", f"/task/pause", data={"eid": tids}) as r:
+        with self.__api_call__("POST", f"/task/restore", data={"eid": tids}) as r:
             if r.ok and r.json().get("code") == 0:
                 return r.json().get("state")
             else:
@@ -794,8 +794,6 @@ class Shuniu:
                                 "Failed Put {task_name}[{task_id}] to worker-{wid} Full"
                             )
                             continue
-            else:
-                time.sleep(2)
 
 
 class Signature:
