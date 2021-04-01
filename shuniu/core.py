@@ -745,6 +745,9 @@ class Shuniu:
                         target=self.worker, args=(stdin, wid, lock)
                     )
                     self.worker_pool[wid] = (worker, stdin)
+            with nonblocking(lock) as locked:
+                if locked and stdin.qsize() == 0:
+                    self.perform[wid] = None
             except Exception:
                 pass
         time.sleep(1)
@@ -769,7 +772,6 @@ class Shuniu:
                         if locked:
                             print(stdin.qsize())
                         continue
-                    self.perform[wid] = None
                     try:
                         task = self.rpc.consume(wid)
                     except IOError:
