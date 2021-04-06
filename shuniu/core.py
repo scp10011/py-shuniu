@@ -771,6 +771,7 @@ class Shuniu:
                     if not locked or stdin.qsize() != 0:
                         if locked:
                             print(stdin.qsize())
+                        time.sleep(1)
                         continue
                     try:
                         task = self.rpc.consume(wid)
