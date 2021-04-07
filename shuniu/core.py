@@ -585,7 +585,7 @@ class Shuniu:
         self.task_registered_map: Dict[int, Task] = {}
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
         self.worker_pool: Dict[int, Tuple] = {}
-        self.control = {1: self.ping, 2: self.get_stats}
+        self.control = {1: self.kill_worker}
         self.state = {}
         self.perform = {}
         self.logger = set_logging("Shuniu", **kwargs)
@@ -595,8 +595,13 @@ class Shuniu:
         fork_session.cookies = self.rpc.__api__.cookies.copy()
         self.rpc.__api__ = fork_session
 
-    def ping(self, *args, **kwargs):
-        return True
+    def kill_worker(self, eid, *args, **kwargs):
+        for wid, _eid in self.perform.items():
+            if _eid == eid:
+                self.logger.info(f"Terminate task: {eid}")
+                worker, _, _ = self.worker_pool[wid]
+                worker.terminate()
+                worker.join()
 
     def get_stats(self, *args, **kwargs):
         return {"history": self.state, "run": self.perform}
@@ -736,21 +741,22 @@ class Shuniu:
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.ignore_result}")
 
     def daemon(self):
-        for wid, (worker, stdin, lock) in self.worker_pool.items():
-            try:
-                worker.join(timeout=0)
-                if not worker.is_alive():
-                    self.logger.error(f"worker {wid} is down..")
-                    worker = multiprocessing.Process(
-                        target=self.worker, args=(stdin, wid, lock)
-                    )
-                    self.worker_pool[wid] = (worker, stdin)
-                with nonblocking(lock) as locked:
-                    if locked and stdin.qsize() == 0:
-                        self.perform[wid] = None
-            except Exception:
-                pass
-        time.sleep(1)
+        while 1:
+            for wid, (worker, stdin, lock) in self.worker_pool.items():
+                try:
+                    worker.join(timeout=0)
+                    if not worker.is_alive():
+                        self.logger.error(f"worker {wid} is down..")
+                        worker = multiprocessing.Process(
+                            target=self.worker, args=(stdin, wid, lock)
+                        )
+                        self.worker_pool[wid] = (worker, stdin)
+                    with nonblocking(lock) as locked:
+                        if locked and stdin.qsize() == 0:
+                            self.perform[wid] = None
+                except Exception:
+                    pass
+            time.sleep(1)
 
     def start(self):
         globals().update({p: __import__(p) for p in self.conf["imports"]})
