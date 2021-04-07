@@ -710,7 +710,6 @@ class Shuniu:
         self.control[instruction](*kws["args"], **kws["kwargs"])
 
     def manager_worker(self):
-        go_back = 1
         while 1:
             try:
                 instruction = self.rpc.manager()
@@ -746,7 +745,7 @@ class Shuniu:
                         worker = multiprocessing.Process(
                             target=self.worker, args=(stdin, wid, lock)
                         )
-                        self.worker_pool[wid] = (worker, stdin)
+                        self.worker_pool[wid] = (worker, stdin, lock)
                     with nonblocking(lock) as locked:
                         if locked and stdin.qsize() == 0:
                             self.perform[wid] = None
