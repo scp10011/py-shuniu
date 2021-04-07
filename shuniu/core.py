@@ -721,10 +721,6 @@ class Shuniu:
             else:
                 if instruction != EmptyData:
                     self.manager(*instruction)
-                    go_back = 1
-                    continue
-            time.sleep(go_back)
-            go_back = 64 if go_back == 64 else go_back * 2
 
     def print_banners(self):
         print(
