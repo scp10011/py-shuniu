@@ -746,6 +746,7 @@ class Shuniu:
                             target=self.worker, args=(stdin, wid, lock)
                         )
                         self.worker_pool[wid] = (worker, stdin, lock)
+                        worker.start()
                     with nonblocking(lock) as locked:
                         if locked and stdin.qsize() == 0:
                             self.perform[wid] = None
