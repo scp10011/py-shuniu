@@ -646,6 +646,7 @@ class Shuniu:
                 instruction = self.rpc.manager()
             except IOError:
                 self.logger.error("Retry after connection loss...")
+                time.sleep(2)
             except Exception:
                 self.logger.exception("Failed to get instruction")
             else:
