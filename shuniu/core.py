@@ -28,6 +28,7 @@ from typing import Dict, Sequence, Any, Tuple
 import bson
 import requests
 import requests.utils
+import requests.adapters
 
 
 class SerializationAlgorithm(enum.IntEnum):
@@ -133,6 +134,16 @@ RPCDefaultConf = {
 }
 
 
+class MyHTTPAdapter(requests.adapters.HTTPAdapter):
+    def __init__(self, timeout=None, *args, **kwargs):
+        self.timeout = timeout
+        super(MyHTTPAdapter, self).__init__(*args, **kwargs)
+
+    def send(self, *args, **kwargs):
+        kwargs["timeout"] = self.timeout
+        return super(MyHTTPAdapter, self).send(*args, **kwargs)
+
+
 class shuniuRPC:
     logged_in = False
 
@@ -155,6 +166,7 @@ class shuniuRPC:
 
     def new_session(self):
         session = requests.Session()
+        session.mount("https://", MyHTTPAdapter(timeout=80, max_retries=2))
         if self.ssl_option:
             if "client_cert" in self.ssl_option:
                 client_cert, client_key = (
@@ -563,7 +575,6 @@ class Shuniu:
 
     def worker(self, stdin: multiprocessing.Queue, wid: int, lock: multiprocessing.Lock):
         self.fork()
-        task_end = set()
         self.logger.info("Fork shuniu connect")
         while 1:
             try:
@@ -575,8 +586,6 @@ class Shuniu:
                     continue
                 with lock:
                     kwargs, task_id, src, task_type = task
-                    if task_id in task_end:
-                        continue
                     task_name = self.rpc.task_map[task_type]
                     worker_class = self.task_registered_map[task_type]
                     if not worker_class.forked:
@@ -593,7 +602,6 @@ class Shuniu:
                     try:
                         result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
                         self.rpc.ack(task_id)
-                        task_end = {task_id}
                         normal = True
                     except worker_class.autoretry_for:
                         exc_info = sys.exc_info()
