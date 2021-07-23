@@ -5,6 +5,7 @@ import re
 import bz2
 import gzip
 import sys
+import traceback
 import zlib
 import time
 import uuid
@@ -12,17 +13,22 @@ import json
 import enum
 import pickle
 import logging
+import hashlib
 import binascii
 import functools
+import contextlib
 import threading
 import urllib.parse
+import queue
 import multiprocessing
+import multiprocessing.queues
 
 from typing import Dict, Sequence, Any, Tuple
 
 import bson
 import requests
 import requests.utils
+import requests.adapters
 
 
 class SerializationAlgorithm(enum.IntEnum):
@@ -60,8 +66,17 @@ class EmptyData(ResourceWarning):
     pass
 
 
-class EndFlag:
-    pass
+def __seq__():
+    sid = globals().get("__increasing__cycle__", 1)
+    globals()["__increasing__cycle__"] = 1 if sid >= 0xFFFF else sid + 1
+    return sid
+
+
+def generate_distributed_id(node_id: str, role: str) -> str:
+    type_id = hashlib.md5(f"{os.getgid()}-{role}".encode()).digest()[:2]
+    prefix = binascii.a2b_hex(node_id.replace("-", ""))[:4]
+    ts = time.time_ns().to_bytes(8, "big")
+    return str(uuid.UUID(bytes=prefix + type_id + __seq__().to_bytes(2, "big") + ts))
 
 
 def decode_payload(payload: str, payload_type: int) -> Dict:
@@ -89,11 +104,7 @@ def decode_payload(payload: str, payload_type: int) -> Dict:
     return obj
 
 
-def encode_payload(
-        payload: Dict,
-        coding: SerializationAlgorithm,
-        compression: CompressionAlgorithm
-) -> (str, int):
+def encode_payload(payload: Dict, coding: SerializationAlgorithm, compression: CompressionAlgorithm) -> (str, int):
     if coding == SerializationAlgorithm.json:
         data = json.dumps(payload).encode()
     elif coding == SerializationAlgorithm.bson:
@@ -123,15 +134,27 @@ RPCDefaultConf = {
 }
 
 
+class MyHTTPAdapter(requests.adapters.HTTPAdapter):
+    def __init__(self, timeout=None, *args, **kwargs):
+        self.timeout = timeout
+        super(MyHTTPAdapter, self).__init__(*args, **kwargs)
+
+    def send(self, *args, **kwargs):
+        kwargs["timeout"] = self.timeout
+        return super(MyHTTPAdapter, self).send(*args, **kwargs)
+
+
 class shuniuRPC:
     logged_in = False
 
-    def __init__(self,
-                 url: str,
-                 username: str,
-                 password: str,
-                 ssl_option: Dict[str, str] = None,
-                 **kwargs):
+    def __init__(
+        self,
+        url: str,
+        username: str,
+        password: str,
+        ssl_option: Dict[str, str] = None,
+        **kwargs,
+    ):
         self.ssl_option = ssl_option
         self.base = urllib.parse.urljoin(url, "./rpc/")
         self.uid = uuid.UUID(username)
@@ -143,9 +166,13 @@ class shuniuRPC:
 
     def new_session(self):
         session = requests.Session()
+        session.mount("https://", MyHTTPAdapter(timeout=80, max_retries=2))
         if self.ssl_option:
             if "client_cert" in self.ssl_option:
-                client_cert, client_key = self.ssl_option["client_cert"], self.ssl_option["client_key"]
+                client_cert, client_key = (
+                    self.ssl_option["client_cert"],
+                    self.ssl_option["client_key"],
+                )
                 if os.path.exists(client_key) and os.path.exists(client_cert):
                     session.cert = client_cert, client_key
                 else:
@@ -186,7 +213,7 @@ class shuniuRPC:
             if r.ok:
                 msg = r.json()
                 if msg.get("code") != 0:
-                    raise ValueError("Requests Error: {}".format(msg.get("msg", "")))  from None
+                    raise ValueError("Requests Error: {}".format(msg.get("msg", ""))) from None
                 self.logged_in = True
                 return
             else:
@@ -199,7 +226,8 @@ class shuniuRPC:
                 self.task_map.update({task["tid"]: task["name"] for task in r.json().get("data")})
             else:
                 raise ValueError(
-                    "Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
+                    "Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)
+                ) from None
 
     def registered(self, name: str) -> int:
         if name in self.task_map:
@@ -213,7 +241,8 @@ class shuniuRPC:
                 return tid
             else:
                 raise ValueError(
-                    "Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
+                    "Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)
+                ) from None
 
     def consume(self, worker_id):
         with self.__api_call__("GET", f"/task/consume/{worker_id}") as r:
@@ -222,12 +251,23 @@ class shuniuRPC:
                 if data["code"] == 404:
                     return EmptyData
                 elif data["code"] == 0:
-                    return decode_payload(data["payload"], data["type"]), data["tid"], data["src"], data["type_id"]
-            raise ValueError(
-                "Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
+                    return (
+                        decode_payload(data["payload"], data["type"]),
+                        data["tid"],
+                        data["src"],
+                        data["type_id"],
+                    )
+            raise ValueError("Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
 
-    def apply_async(self, task: str, *, args: Sequence = None, kwargs: Dict = None, queue: str = None,
-                    **options) -> "AsyncResult":
+    def apply_async(
+        self,
+        task: str,
+        *,
+        args: Sequence = None,
+        kwargs: Dict = None,
+        queue: str = None,
+        **options,
+    ) -> "AsyncResult":
         if not isinstance(task, str):
             raise TypeError("task type only str")
         elif args and not isinstance(args, tuple):
@@ -238,11 +278,17 @@ class shuniuRPC:
         kwargs = kwargs or {}
         if not queue:
             queue = self.get_router(task)
+        try:
+            queue = str(uuid.UUID(queue))
+        except (ValueError, AttributeError):
+            raise ValueError("Queue is illegal!") from None
         task_id = uuid.UUID(options["task_id"]).hex if "task_id" in options else uuid.uuid5(self.uid, uuid.uuid4().hex)
+        task_id = str(task_id)
         payload, payload_type = encode_payload(
-            {"args": list(args), "kwargs": kwargs},
+            {"args": list(args), "kwargs": kwargs, **options},
             coding=options.get("serialization", self.conf["serialization"]),
-            compression=options.get("compression", self.conf["compression"]))
+            compression=options.get("compression", self.conf["compression"]),
+        )
         if task not in self.task_map:
             self.registered(task)
         type_id = self.task_map[task]
@@ -251,16 +297,25 @@ class shuniuRPC:
             "type": payload_type,
             "tid": task_id,
             "type_id": type_id,
-            **options
+            **options,
         }
         with self.__api_call__("POST", f"/task/release/{queue}", data=data) as r:
             if r.ok and r.json().get("code") == 0:
                 return AsyncResult(task_id, self)
             else:
                 raise ValueError(
-                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)) from None
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)
+                ) from None
 
-    def broadcast(self, task, destinations, *, args: Sequence = None, kwargs: Dict = None, **options) -> Dict[str, str]:
+    def broadcast(
+        self,
+        task,
+        destinations,
+        *,
+        args: Sequence = None,
+        kwargs: Dict = None,
+        **options,
+    ) -> Dict[str, str]:
         if not isinstance(task, str):
             raise TypeError("task type only str")
         elif args and not isinstance(args, tuple):
@@ -272,10 +327,12 @@ class shuniuRPC:
         if not destinations:
             raise ValueError("Destination cannot be empty")
         task_id = uuid.UUID(options["task_id"]).hex if "task_id" in options else uuid.uuid5(self.uid, uuid.uuid4().hex)
+        task_id = str(task_id)
         payload, payload_type = encode_payload(
             {"args": list(args), "kwargs": kwargs},
             coding=options.get("serialization", self.conf["serialization"]),
-            compression=options.get("compression", self.conf["compression"]))
+            compression=options.get("compression", self.conf["compression"]),
+        )
         if task not in self.task_map:
             self.registered(task)
         type_id = self.task_map[task]
@@ -285,36 +342,42 @@ class shuniuRPC:
             "type": payload_type,
             "tid": task_id,
             "type_id": type_id,
-            **options
+            **options,
         }
         with self.__api_call__("POST", "/task/broadcast/release", data=data) as r:
             if r.ok and r.json().get("code") == 0:
                 return r.json()["map"]
             else:
                 raise ValueError(
-                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)) from None
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)
+                ) from None
 
-    def ack(self, task_id: str, fail: bool = False):
-        method = "fail" if fail else "over"
+    def ack(self, task_id: str, fail: bool = False, retry: bool = False):
+        if retry and fail:
+            raise TypeError
+        method = "fail" if fail else "retry" if retry else "over"
         with self.__api_call__("PUT", f"/task/ack/{task_id}/{method}") as r:
             if r.ok and r.json().get("code") == 0:
                 return
             else:
                 raise ValueError(
-                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)) from None
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)
+                ) from None
 
     def set(self, task_id: str, src: str, payload: Any, serialization=None, compression=None):
         payload, payload_type = encode_payload(
             payload,
             coding=serialization or self.conf["serialization"],
-            compression=compression or self.conf["compression"])
+            compression=compression or self.conf["compression"],
+        )
         data = {"src": src, "payload": payload, "type": payload_type}
         with self.__api_call__("POST", f"/task/result/{task_id}", data=data) as r:
             if r.ok and r.json().get("code") == 0:
                 return
             else:
                 raise ValueError(
-                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)) from None
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)
+                ) from None
 
     def get(self, task_id: str):
         with self.__api_call__("GET", f"/task/result/{task_id}") as r:
@@ -326,7 +389,8 @@ class shuniuRPC:
                     return decode_payload(data["payload"], data["type"])
             else:
                 raise ValueError(
-                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)) from None
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)
+                ) from None
 
     def revoke(self, task_id: str):
         with self.__api_call__("DELETE", f"/task/revoke/{task_id}") as r:
@@ -334,7 +398,53 @@ class shuniuRPC:
                 return
             else:
                 raise ValueError(
-                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)) from None
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)
+                ) from None
+
+    def pause(self, task_id: str):
+        with self.__api_call__("PUT", f"/task/pause/{task_id}") as r:
+            if r.ok and r.json().get("code") == 0:
+                return
+            else:
+                raise ValueError(
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)
+                ) from None
+
+    def restore(self, task_id: str):
+        with self.__api_call__("PUT", f"/task/restore/{task_id}") as r:
+            if r.ok and r.json().get("code") == 0:
+                return
+            else:
+                raise ValueError(
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)
+                ) from None
+
+    def many_revoke(self, tids):
+        with self.__api_call__("POST", f"/task/revoke", data={"eid": tids}) as r:
+            if r.ok and r.json().get("code") == 0:
+                return r.json().get("state")
+            else:
+                raise ValueError(
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)
+                ) from None
+
+    def many_pause(self, tids):
+        with self.__api_call__("POST", f"/task/pause", data={"eid": tids}) as r:
+            if r.ok and r.json().get("code") == 0:
+                return r.json().get("state")
+            else:
+                raise ValueError(
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)
+                ) from None
+
+    def many_restore(self, tids):
+        with self.__api_call__("POST", f"/task/restore", data={"eid": tids}) as r:
+            if r.ok and r.json().get("code") == 0:
+                return r.json().get("state")
+            else:
+                raise ValueError(
+                    "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)
+                ) from None
 
     def manager(self):
         with self.__api_call__("GET", "/manager") as r:
@@ -343,10 +453,11 @@ class shuniuRPC:
                 if data["code"] == 404:
                     return EmptyData
                 elif data["code"] == 0:
-                    print(data)
-                    return decode_payload(data["payload"], data["type"]), data["instruction"]
-            raise ValueError(
-                "Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
+                    return (
+                        decode_payload(data["payload"], data["type"]),
+                        data["instruction"],
+                    )
+            raise ValueError("Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
 
     def router(self, channel):
         with self.__api_call__("POST", "/router", data={"dst": list(channel)}) as r:
@@ -354,13 +465,22 @@ class shuniuRPC:
                 data = r.json()
                 if data["code"] == 0:
                     return data["queue"]
-            raise ValueError(
-                "Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
+            raise ValueError("Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
+
+
+@contextlib.contextmanager
+def nonblocking(lock):
+    locked = lock.acquire(False)
+    try:
+        yield locked
+    finally:
+        if locked:
+            lock.release()
 
 
 def urlparse(uri) -> Dict:
     obj = urllib.parse.urlparse(uri)
-    url = urllib.parse.urlunparse([obj.scheme, obj.netloc.split('@')[-1], obj.path, "", "", ""])
+    url = urllib.parse.urlunparse([obj.scheme, obj.netloc.split("@")[-1], obj.path, "", "", ""])
     return {"username": obj.username, "password": obj.password, "url": url}
 
 
@@ -378,8 +498,8 @@ ShuniuDefaultConf = {
 
 class WorkerLogFilter(logging.Filter):
     def filter(self, record):
-        if not hasattr(record, 'wid'):
-            record.wid = 'Main'
+        if not hasattr(record, "wid"):
+            record.wid = "Main"
         return True
 
 
@@ -393,7 +513,7 @@ def set_logging(name, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
     if logstdout:
         handler = logging.StreamHandler()
         logger.addHandler(handler)
-    logFormat = logging.Formatter('[%(levelname)s/%(name)s-%(wid)s] %(message)s')
+    logFormat = logging.Formatter("[%(levelname)s/%(name)s-%(wid)s] %(message)s")
     for handler in logger.handlers:
         handler.setFormatter(logFormat)
     logger.addFilter(WorkerLogFilter())
@@ -409,12 +529,12 @@ class Shuniu:
         self.rpc = shuniuRPC(**conn_obj, **kwargs)
         self.rpc.login()
         self.rpc.get_task_list()
-        self.ack_queue = multiprocessing.Queue()
         self.task_registered_map: Dict[int, Task] = {}
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
         self.worker_pool: Dict[int, Tuple] = {}
-        self.control = {1: self.ping, 2: self.get_stats}
+        self.control = {1: self.kill_worker}
         self.state = {}
+        self.perform = {}
         self.logger = set_logging("Shuniu", **kwargs)
 
     def fork(self):
@@ -422,11 +542,16 @@ class Shuniu:
         fork_session.cookies = self.rpc.__api__.cookies.copy()
         self.rpc.__api__ = fork_session
 
-    def ping(self, *args, **kwargs):
-        return True
+    def kill_worker(self, eid, *args, **kwargs):
+        for wid, _eid in self.perform.items():
+            if _eid == eid:
+                self.logger.info(f"Terminate task: {eid}")
+                worker, _, _ = self.worker_pool[wid]
+                worker.terminate()
+                worker.join()
 
     def get_stats(self, *args, **kwargs):
-        return self.state
+        return {"history": self.state, "run": self.perform}
 
     def task(self, *args, **kwargs):
         if len(args) == 1 and isinstance(args, type(abs)):
@@ -448,83 +573,93 @@ class Shuniu:
     def signature(self, name: str) -> "Signature":
         return Signature(self.rpc, name)
 
-    def worker(self, queue: multiprocessing.Queue, wid: int):
+    def worker(self, stdin: multiprocessing.Queue, wid: int, lock: multiprocessing.Lock):
         self.fork()
+        self.logger.info("Fork shuniu connect")
         while 1:
-            task = queue.get()
-            if task is EndFlag:
-                continue
-            kwargs, task_id, src, task_type = task
-            worker_class = self.task_registered_map[task_type]
-            worker_class.mock(task_id=task_id, src=src, wid=wid)
-            exc_type, exc_value, exc_traceback = None, None, None
-            start_time = time.time()
-            self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
-            for i in range(worker_class.retry):
+            try:
                 try:
-                    result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
-                    break
-                except worker_class.autoretry_for:
-                    self.logger.exception(f"Resumable retry {i + 1}/{worker_class.retry} time",
-                                          extra={"wid": wid})
-                    exc_type, exc_value, exc_traceback = sys.exc_info()
+                    task = stdin.get(timeout=10)
+                    if not task:
+                        continue
+                except queue.Empty:
                     continue
-                except:
-                    exc_type, exc_value, exc_traceback = sys.exc_info()
-                    break
-            runner_time = time.time() - start_time
-            if exc_type:
-                self.rpc.ack(task_id, fail=True)
-                worker_class.on_failure(exc_type, exc_value, exc_traceback)
-                self.logger.info(
-                    f"Task {self.rpc.task_map[task_type]}[{task_id}] failure in {runner_time}", extra={"wid": wid})
-            else:
-                self.rpc.ack(task_id)
-                if not worker_class.ignore_result:
-                    self.rpc.set(
-                        task_id,
-                        src,
-                        payload=result or {},
-                        serialization=worker_class.serialization,
-                        compression=worker_class.compression
+                with lock:
+                    kwargs, task_id, src, task_type = task
+                    task_name = self.rpc.task_map[task_type]
+                    worker_class = self.task_registered_map[task_type]
+                    if not worker_class.forked:
+                        worker_class.__init_socket__()
+                        worker_class.forked = True
+                    worker_class.mock(task_id=task_id, src=src, wid=wid)
+                    start_time = time.time()
+                    normal = False
+                    self.logger.info(
+                        f"Start {self.rpc.task_map[task_type]}[{task_id}]",
+                        extra={"wid": wid},
                     )
-                self.logger.info(
-                    f"Task {self.rpc.task_map[task_type]}[{task_id}] succeeded in {runner_time}: {result}",
-                    extra={"wid": wid})
-                worker_class.on_success()
-
-    def ack_worker(self):
-        ACK_MODE = {"ack": self.rpc.ack, "set": self.rpc.set}
-        while 1:
-            try:
-                mod, args, kwargs = self.ack_queue.get()
-            except:
-                continue
-            try:
-                ACK_MODE[mod](*args, **kwargs)
-            except:
-                self.ack_queue.put((mod, args, kwargs))
-                self.logger.exception("ack error")
+                    exc_info = None
+                    try:
+                        result = worker_class.run(*kwargs["args"], **kwargs["kwargs"])
+                        self.rpc.ack(task_id)
+                        normal = True
+                    except worker_class.autoretry_for:
+                        exc_info = sys.exc_info()
+                        self.rpc.ack(task_id, retry=True)
+                        self.logger.exception("Autoretry exception", extra={"wid": wid})
+                    except Exception:
+                        exc_info = sys.exc_info()
+                        self.rpc.ack(task_id, fail=True)
+                        self.logger.exception("Unknown exception", extra={"wid": wid})
+                    runner_time = time.time() - start_time
+                    if normal:
+                        result = {} if isinstance(result, type(None)) else result
+                        if not worker_class.ignore_result:
+                            self.rpc.set(
+                                task_id,
+                                src,
+                                payload=result,
+                                serialization=worker_class.serialization,
+                                compression=worker_class.compression,
+                            )
+                        self.logger.info(
+                            f"Task {task_name}[{task_id}] succeeded in {runner_time}: {result}",
+                            extra={"wid": wid},
+                        )
+                        worker_class.on_success()
+                    else:
+                        if not worker_class.ignore_result:
+                            error = "".join(traceback.format_exception(*exc_info))
+                            self.rpc.set(
+                                task_id,
+                                src,
+                                payload={"__traceback__": error},
+                                serialization=worker_class.serialization,
+                                compression=worker_class.compression,
+                            )
+                        self.logger.info(
+                            f"Task {task_name}[{task_id}] failure in {runner_time}",
+                            extra={"wid": wid},
+                        )
+                        worker_class.on_failure(*exc_info)
+            except Exception:
+                self.logger.exception("worker collapse")
 
     def manager(self, kws, instruction):
         self.control[instruction](*kws["args"], **kws["kwargs"])
 
     def manager_worker(self):
-        go_back = 1
         while 1:
             try:
                 instruction = self.rpc.manager()
             except IOError:
                 self.logger.error("Retry after connection loss...")
+                time.sleep(2)
             except Exception:
                 self.logger.exception("Failed to get instruction")
             else:
                 if instruction != EmptyData:
                     self.manager(*instruction)
-                    go_back = 1
-                    continue
-            time.sleep(go_back)
-            go_back = 64 if go_back == 64 else go_back * 2
 
     def print_banners(self):
         print(
@@ -535,24 +670,48 @@ class Shuniu:
 .> concurrency: {self.conf['concurrency']}
 .> manager: {self.conf['worker_enable_remote_control']}
 
-[tasks]""")
+[tasks]"""
+        )
         for tid, task in self.task_registered_map.items():
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.ignore_result}")
+
+    def daemon(self):
+        while 1:
+            for wid, (worker, stdin, lock) in self.worker_pool.items():
+                with contextlib.suppress(Exception):
+                    worker.join(timeout=0)
+                    if not worker.is_alive():
+                        self.logger.error(f"worker {wid} is down..")
+                        worker = multiprocessing.Process(target=self.worker, args=(stdin, wid, lock))
+                        self.worker_pool[wid] = (worker, stdin, lock)
+                        worker.start()
+                with contextlib.suppress(Exception):
+                    with nonblocking(lock) as locked:
+                        if locked and stdin.qsize() == 0:
+                            self.perform[wid] = None
+            time.sleep(1)
 
     def start(self):
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         if self.conf["worker_enable_remote_control"]:
             threading.Thread(target=self.manager_worker).start()
-        threading.Thread(target=self.ack_worker).start()
+        manager = multiprocessing.Manager()
         for i in range(self.conf["concurrency"]):
-            queue = multiprocessing.Queue()
-            worker = multiprocessing.Process(target=self.worker, args=(queue, i,))
-            self.worker_pool[i] = (worker, queue)
+            stdin = manager.Queue(maxsize=1)
+            lock = manager.Lock()
+            worker = multiprocessing.Process(target=self.worker, args=(stdin, i, lock))
+            self.worker_pool[i] = (worker, stdin, lock)
             worker.start()
+        threading.Thread(target=self.daemon).start()
         self.print_banners()
         while 1:
-            for wid, (worker, queue) in self.worker_pool.items():
-                if queue.empty():
+            for wid, (worker, stdin, lock) in self.worker_pool.items():
+                with nonblocking(lock) as locked:
+                    if not locked or stdin.qsize() != 0:
+                        if locked:
+                            print(stdin.qsize())
+                        time.sleep(1)
+                        continue
                     try:
                         task = self.rpc.consume(wid)
                     except IOError:
@@ -562,16 +721,17 @@ class Shuniu:
                     except Exception:
                         self.logger.exception("Failed to get task")
                         break
-                    if task is EmptyData:
-                        break
-                    else:
+                    if task is not EmptyData:
                         kwargs, task_id, src, task_type = task
-                        self.logger.info(f"Received task: {self.rpc.task_map[task_type]}[{task_id}]")
-                        self.state[task_type] = self.state.setdefault(task_type, 0) + 1
-                        queue.put((kwargs, task_id, src, task_type))
-                        queue.put(EndFlag)
-            else:
-                continue
+                        task_name = self.rpc.task_map[task_type]
+                        self.logger.info(f"Received task to worker-{wid}: {task_name}[{task_id}]")
+                        self.state[task_name] = self.state.setdefault(task_name, 0) + 1
+                        self.perform[wid] = task_id
+                        try:
+                            stdin.put_nowait((kwargs, task_id, src, task_type))
+                        except queue.Full:
+                            self.logger.error("Failed Put {task_name}[{task_id}] to worker-{wid} Full")
+                            continue
 
 
 class Signature:
@@ -581,6 +741,9 @@ class Signature:
 
     def apply_async(self, *args, **kwargs) -> "AsyncResult":
         return self.rpc.apply_async(self.name, *args, **kwargs)
+
+    def broadcast(self, *args, **kwargs) -> "AsyncResult":
+        return self.rpc.broadcast(self.name, *args, **kwargs)
 
 
 class AsyncResult:
@@ -592,10 +755,18 @@ class AsyncResult:
         result = self.rpc.get(self.task_id)
         while result == EmptyData:
             result = self.rpc.get(self.task_id)
+        if isinstance(result, dict) and "__traceback__" in result:
+            raise Exception(result["__traceback__"])
         return result
 
     def revoke(self) -> None:
         self.rpc.revoke(self.task_id)
+
+    def pause(self) -> None:
+        self.rpc.pause(self.task_id)
+
+    def restore(self) -> None:
+        self.rpc.restore(self.task_id)
 
     def __repr__(self):
         return f"<AsyncResult {self.task_id} at {hex(id(self))}>"
@@ -606,17 +777,19 @@ class Task:
     wid = None
     src = None
 
-    def __init__(self, app: Shuniu,
-                 name: str,
-                 func: type(abs),
-                 conf: Dict,
-                 bind: bool = False,
-                 autoretry_for: Tuple[Exception] = None,
-                 retry: int = 3,
-                 ignore_result=None,
-                 serialization=None,
-                 compression=None,
-                 **kwargs):
+    def __init__(
+        self,
+        app: Shuniu,
+        name: str,
+        func: type(abs),
+        conf: Dict,
+        bind: bool = False,
+        autoretry_for: Tuple[Exception] = None,
+        ignore_result=None,
+        serialization=None,
+        compression=None,
+        **kwargs,
+    ):
         if kwargs:
             app.logger.warning(f"Unknown parameter: {kwargs}")
         self.name = name
@@ -630,7 +803,11 @@ class Task:
             self.ignore_result = conf.get("ignore_result", True)
         self.serialization = serialization
         self.compression = compression
-        self.autoretry_for = autoretry_for
+        self.autoretry_for = autoretry_for or ()
+        self.forked = False
+
+    def __init_socket__(self):
+        pass
 
     @property
     def logger(self):
@@ -647,6 +824,9 @@ class Task:
 
     def apply_async(self, *args, **kwargs) -> AsyncResult:
         return self.app.rpc.apply_async(self.name, *args, **kwargs)
+
+    def broadcast(self, *args, **kwargs) -> Dict[str, str]:
+        return self.app.rpc.broadcast(self.name, *args, **kwargs)
 
     def on_failure(self, exc_type, exc_value, exc_traceback):
         pass
