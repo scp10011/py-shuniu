@@ -244,6 +244,14 @@ class shuniuRPC:
                     "Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)
                 ) from None
 
+    def unconfirmed(self):
+        with self.__api_call__("GET", "/task/unconfirmed") as r:
+            if r.ok:
+                data = r.json()
+                if data["code"] == 0:
+                    return data["tasks"]
+            raise ValueError("Requests Error: {}".format(r.ok and r.json().get("msg", "") or r.status_code)) from None
+
     def consume(self, worker_id):
         with self.__api_call__("GET", f"/task/consume/{worker_id}") as r:
             if r.ok:
@@ -704,6 +712,10 @@ class Shuniu:
             worker.start()
         threading.Thread(target=self.daemon).start()
         self.print_banners()
+        for task in self.rpc.unconfirmed():
+            task_name = self.rpc.task_map[task["type_id"]]
+            self.logger.info(f"Unidentified worker[{task['wid']}] task-> {task_name}[{task['tid']}]")
+            self.rpc.ack(task["tid"], False, True)
         while 1:
             for wid, (worker, stdin, lock) in self.worker_pool.items():
                 with nonblocking(lock) as locked:
