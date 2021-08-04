@@ -147,11 +147,6 @@ class MyHTTPAdapter(requests.adapters.HTTPAdapter):
         return super(MyHTTPAdapter, self).send(*args, **kwargs)
 
 
-def initializer():
-    soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-    resource.setrlimit(resource.RLIMIT_AS, (1 * 1024 ** 3, hard))
-
-
 class shuniuRPC:
     logged_in = False
 
@@ -557,6 +552,11 @@ class Shuniu:
         self.__running__ = True
         self.logger = set_logging("Shuniu", **kwargs)
 
+    def initializer(self):
+        self.fork()
+        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        resource.setrlimit(resource.RLIMIT_AS, (1 * 1024 ** 3, hard))
+
     def fork(self):
         fork_session = self.rpc.new_session()
         fork_session.cookies = self.rpc.__api__.cookies.copy()
@@ -714,6 +714,7 @@ class Shuniu:
                     if not worker_class.forked:
                         worker_class.__init_socket__()
                         worker_class.forked = True
+                    worker_class.mock(task_id, src, wid)
                     self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
                     future = self.pool.schedule(worker_class.run, args=kwargs["args"], kwargs=kwargs["kwargs"],
                                                 timeout=worker_class.timeout)
