@@ -2,80 +2,25 @@
 
 
 import sys
-import traceback
-
 import time
-
 import logging
+import traceback
 import functools
-import contextlib
 import threading
 import resource
 import urllib.parse
 import queue
 import multiprocessing
-import multiprocessing.queues
 
 from concurrent.futures import TimeoutError
+
 from typing import Dict
 
 from pebble import ProcessPool, ProcessExpired
 
 from shuniu.task import Signature, Task
 from shuniu.api import shuniuRPC, EmptyData
-
-
-class Singleton(object):
-    def __init__(self, cls):
-        self._cls = cls
-        self._instance = {}
-
-    def __call__(self, *args, **kwargs):
-        if self._cls not in self._instance:
-            self._instance[self._cls] = self._cls(*args, **kwargs)
-        return self._instance[self._cls]
-
-
-def urlparse(uri) -> Dict:
-    obj = urllib.parse.urlparse(uri)
-    url = urllib.parse.urlunparse([obj.scheme, obj.netloc.split("@")[-1], obj.path, "", "", ""])
-    return {"username": obj.username, "password": obj.password, "url": url}
-
-
-ShuniuDefaultConf = {
-    "concurrency": multiprocessing.cpu_count(),
-    "worker_enable_remote_control": True,
-    "imports": [],
-    "priority": 0,
-    "max_retries": 3,
-    "loglevel": "info",
-    "logfile": None,
-    "logstdout": True,
-}
-
-
-class WorkerLogFilter(logging.Filter):
-    def filter(self, record):
-        if not hasattr(record, "wid"):
-            record.wid = "Main"
-        return True
-
-
-def set_logging(name, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
-    logger = multiprocessing.get_logger()
-    logger.name = name
-    logger.setLevel(loglevel.upper())
-    if logfile:
-        handler = logging.FileHandler(logfile)
-        logger.addHandler(handler)
-    if logstdout:
-        handler = logging.StreamHandler()
-        logger.addHandler(handler)
-    logFormat = logging.Formatter("[%(levelname)s/%(name)s-%(wid)s] %(message)s")
-    for handler in logger.handlers:
-        handler.setFormatter(logFormat)
-    logger.addFilter(WorkerLogFilter())
-    return logger
+from shuniu.tools import Singleton, WorkerLogFilter
 
 
 @Singleton
@@ -281,3 +226,38 @@ class Shuniu:
                 break
         self.pool.close()
         self.pool.join()
+
+
+def urlparse(uri) -> Dict:
+    obj = urllib.parse.urlparse(uri)
+    url = urllib.parse.urlunparse([obj.scheme, obj.netloc.split("@")[-1], obj.path, "", "", ""])
+    return {"username": obj.username, "password": obj.password, "url": url}
+
+
+ShuniuDefaultConf = {
+    "concurrency": multiprocessing.cpu_count(),
+    "worker_enable_remote_control": True,
+    "imports": [],
+    "priority": 0,
+    "max_retries": 3,
+    "loglevel": "info",
+    "logfile": None,
+    "logstdout": True,
+}
+
+
+def set_logging(name, loglevel="INFO", logfile=None, logstdout=True, **kwargs):
+    logger = multiprocessing.get_logger()
+    logger.name = name
+    logger.setLevel(loglevel.upper())
+    if logfile:
+        handler = logging.FileHandler(logfile)
+        logger.addHandler(handler)
+    if logstdout:
+        handler = logging.StreamHandler()
+        logger.addHandler(handler)
+    logFormat = logging.Formatter("[%(levelname)s/%(name)s-%(wid)s] %(message)s")
+    for handler in logger.handlers:
+        handler.setFormatter(logFormat)
+    logger.addFilter(WorkerLogFilter())
+    return logger
