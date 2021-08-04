@@ -542,7 +542,7 @@ class Shuniu:
         self.rpc.get_task_list()
         self.task_registered_map: Dict[int, Task] = {}
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
-        self.pool = ProcessPool(max_workers=self.conf["concurrency"], initializer=initializer)
+        self.pool = ProcessPool(max_workers=self.conf["concurrency"], initializer=self.initializer)
         self.pre_request = queue.Queue()
         [self.pre_request.put(i) for i in self.conf["concurrency"]]
         self.control = {1: self.kill_worker}
