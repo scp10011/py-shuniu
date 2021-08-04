@@ -58,9 +58,6 @@ class Shuniu:
         fork_session = self.rpc.new_session()
         fork_session.cookies = self.rpc.__api__.cookies.copy()
         self.rpc.__api__ = fork_session
-        cg = Cgroup(f"worker-{os.getpid()}")
-        cg.set_memory_limit(1000)
-        cg.add(os.getpid())
         self.logger.info("initializer fork set limit")
 
     def kill_worker(self, eid, *args, **kwargs):
