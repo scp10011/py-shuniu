@@ -4,8 +4,11 @@
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/venv" />
     </content>
-    <orderEntry type="jdk" jdkName="Remote Python 3.8.5 (sftp://scp10011@192.168.41.84:22/usr/bin/python3)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Remote Python 3.8.10 (sftp://scp10011@192.168.41.84:22/home/scp10011/remote-venv/bin/python3)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+  <component name="PackageRequirementsSettings">
+    <option name="versionSpecifier" value="强相等 (==x.y.z)" />
   </component>
   <component name="PyDocumentationSettings">
     <option name="format" value="PLAIN" />
