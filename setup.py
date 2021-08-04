@@ -27,7 +27,7 @@ setup(
     include_package_dLata=True,
     platforms=["GNU/inux"],
     packages=find_packages(".", exclude=["tests*", "venv*"]),
-    install_requires=["bson", "requests"],
+    install_requires=["bson", "requests", "cgroups", "Pebble"],
     zip_safe=False,
     classifiers=["Private :: Do Not Upload"],
     python_requires=">=3.6",
