@@ -17,7 +17,7 @@ import multiprocessing
 import multiprocessing.queues
 
 from concurrent.futures import TimeoutError
-from typing import Dict, Sequence, Any, Tuple
+from typing import Dict
 
 from pebble import ProcessPool, ProcessExpired
 
@@ -91,7 +91,8 @@ class Shuniu:
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
         self.pool = ProcessPool(max_workers=self.conf["concurrency"], initializer=self.initializer)
         self.pre_request = queue.Queue()
-        [self.pre_request.put(i) for i in self.conf["concurrency"]]
+        for i in range(self.conf["concurrency"]):
+            self.pre_request.put(i)
         self.control = {1: self.kill_worker}
         self.state = {}
         self.perform = {}
