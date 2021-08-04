@@ -42,7 +42,7 @@ class shuniuRPC:
 
     def new_session(self):
         session = requests.Session()
-        session.mount("https://", MyHTTPAdapter(timeout=80, max_retries=2))
+        session.mount("https://", MyHTTPAdapter(timeout=80, max_retries=3))
         if self.ssl_option:
             if "client_cert" in self.ssl_option:
                 client_cert, client_key = (
@@ -469,8 +469,8 @@ class MyHTTPAdapter(requests.adapters.HTTPAdapter):
         super(MyHTTPAdapter, self).__init__(*args, **kwargs)
 
     def send(self, *args, **kwargs):
-        kwargs["timeout"] = self.timeout
-        return super(MyHTTPAdapter, self).send(*args, **kwargs)
+        timeout = getattr(self, "timeout", 80)
+        return super(MyHTTPAdapter, self).send(*args, **kwargs, timeout=timeout)
 
 
 class ErrorCode(enum.IntEnum):

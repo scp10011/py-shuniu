@@ -55,9 +55,9 @@ class Shuniu:
 
     def initializer(self):
         self.fork()
+        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        resource.setrlimit(resource.RLIMIT_AS, (1 * 1024 ** 3, hard))
         self.logger.info("initializer fork set limit")
-        # soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-        # resource.setrlimit(resource.RLIMIT_AS, (1 * 1024 ** 3, hard))
 
     def fork(self):
         fork_session = self.rpc.new_session()
