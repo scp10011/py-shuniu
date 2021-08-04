@@ -23,8 +23,10 @@ from shuniu.tools import Singleton, WorkerLogFilter
 
 
 class TaskApp:
-    def __init__(self, rpc):
+    def __init__(self, app, rpc, logger):
+        self.app = app
         self.rpc = rpc
+        self.logger = logger
 
     def signature(self, name: str) -> "Signature":
         return Signature(self.rpc, name)
@@ -85,7 +87,7 @@ class Shuniu:
         else:
             worker_base = Task
         self.task_registered_map[type_id] = worker_base(
-            app=TaskApp(self.rpc),
+            app=TaskApp(self.app, self.rpc, self.logger),
             name=name,
             func=func,
             conf=self.conf,
