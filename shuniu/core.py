@@ -23,6 +23,14 @@ from shuniu.api import shuniuRPC, EmptyData
 from shuniu.tools import Singleton, WorkerLogFilter
 
 
+class TaskApp:
+    def __init__(self, rpc):
+        self.rpc = rpc
+
+    def signature(self, name: str) -> "Signature":
+        return Signature(self.rpc, name)
+
+
 @Singleton
 class Shuniu:
     def __init__(self, app: str, rpc_server: str, **kwargs):
@@ -79,10 +87,13 @@ class Shuniu:
             worker_base = base
         else:
             worker_base = Task
-        self.task_registered_map[type_id] = worker_base(app=self, name=name, func=func, conf=self.conf, **kwargs)
-
-    def signature(self, name: str) -> "Signature":
-        return Signature(self.rpc, name)
+        self.task_registered_map[type_id] = worker_base(
+            app=TaskApp(self.rpc),
+            name=name,
+            func=func,
+            conf=self.conf,
+            **kwargs
+        )
 
     def manager(self, kws, instruction):
         self.control[instruction](*kws["args"], **kws["kwargs"])
