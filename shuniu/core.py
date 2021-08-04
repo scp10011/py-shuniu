@@ -26,7 +26,8 @@ class TaskApp:
     def __init__(self, app, rpc, loglevel):
         self.app = app
         self.rpc = rpc
-        self.logger = set_logging("Shuniu[worker]", loglevel)
+        level = logging.getLevelName(loglevel)
+        self.logger = set_logging("Shuniu[worker]", level)
 
     def signature(self, name: str) -> "Signature":
         return Signature(self.rpc, name)
