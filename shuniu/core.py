@@ -42,7 +42,6 @@ class Shuniu:
         self.rpc.get_task_list()
         self.task_registered_map: Dict[int, Task] = {}
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
-        self.pool = ProcessPool(max_workers=self.conf["concurrency"], initializer=self.initializer)
         self.pre_request = queue.Queue()
         for i in range(self.conf["concurrency"]):
             self.pre_request.put(i)
@@ -60,7 +59,6 @@ class Shuniu:
         # soft, hard = resource.getrlimit(resource.RLIMIT_AS)
         # resource.setrlimit(resource.RLIMIT_AS, (1 * 1024 ** 3, hard))
         self.logger.info("initializer fork set limit")
-
 
     def kill_worker(self, eid, *args, **kwargs):
         future = self.worker_future.get(eid)
@@ -193,49 +191,48 @@ class Shuniu:
             task_name = self.rpc.task_map[task["type_id"]]
             self.logger.info(f"Unidentified worker[{task['wid']}] task-> {task_name}[{task['tid']}]")
             self.rpc.ack(task["tid"], False, True)
-        while self.__running__:
-            wid = self.pre_request.get()
-            while 1:
-                try:
-                    task = self.rpc.consume(wid)
-                except IOError:
-                    self.logger.error("Retry after connection loss...")
-                    time.sleep(2)
-                    continue
-                except Exception:
-                    self.logger.exception("Failed to get task")
-                    continue
-                if task is EmptyData:
-                    continue
-                try:
-                    kwargs, task_id, src, task_type = task
-                    task_name = self.rpc.task_map[task_type]
-                    self.logger.info(f"Received task to worker-{wid}: {task_name}[{task_id}]")
-                    self.state[task_name] = self.state.setdefault(task_name, 0) + 1
-                    self.perform[wid] = task_id
-                    self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
-                    worker_class = self.task_registered_map[task_type]
-                    if not worker_class.forked:
-                        worker_class.__init_socket__()
-                        worker_class.forked = True
-                    worker_class.mock(task_id, src, wid)
-                    future = self.pool.schedule(worker_class.run, args=kwargs["args"], kwargs=kwargs["kwargs"],
-                                                timeout=worker_class.timeout)
-                    self.worker_future[task_id] = future
-                    callback = functools.partial(self.task_over, **{
-                        "worker_class": self.task_registered_map[task_type],
-                        "task_id": task_id,
-                        "src": src,
-                        "task_name": task_name,
-                        "wid": wid,
-                        "start_time": time.time()
-                    })
-                    future.add_done_callback(callback)
-                except Exception:
-                    self.logger.exception("Send task failure")
-                break
-        self.pool.close()
-        self.pool.join()
+        with ProcessPool(max_workers=self.conf["concurrency"], initializer=self.initializer) as pool:
+            while self.__running__:
+                wid = self.pre_request.get()
+                while 1:
+                    try:
+                        task = self.rpc.consume(wid)
+                    except IOError:
+                        self.logger.error("Retry after connection loss...")
+                        time.sleep(2)
+                        continue
+                    except Exception:
+                        self.logger.exception("Failed to get task")
+                        continue
+                    if task is EmptyData:
+                        continue
+                    try:
+                        kwargs, task_id, src, task_type = task
+                        task_name = self.rpc.task_map[task_type]
+                        self.logger.info(f"Received task to worker-{wid}: {task_name}[{task_id}]")
+                        self.state[task_name] = self.state.setdefault(task_name, 0) + 1
+                        self.perform[wid] = task_id
+                        self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
+                        worker_class = self.task_registered_map[task_type]
+                        if not worker_class.forked:
+                            worker_class.__init_socket__()
+                            worker_class.forked = True
+                        worker_class.mock(task_id, src, wid)
+                        future = pool.schedule(worker_class.run, args=kwargs["args"], kwargs=kwargs["kwargs"],
+                                               timeout=worker_class.timeout)
+                        self.worker_future[task_id] = future
+                        callback = functools.partial(self.task_over, **{
+                            "worker_class": self.task_registered_map[task_type],
+                            "task_id": task_id,
+                            "src": src,
+                            "task_name": task_name,
+                            "wid": wid,
+                            "start_time": time.time()
+                        })
+                        future.add_done_callback(callback)
+                    except Exception:
+                        self.logger.exception("Send task failure")
+                    break
 
 
 def urlparse(uri) -> Dict:
