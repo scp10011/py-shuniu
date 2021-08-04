@@ -185,14 +185,6 @@ class Shuniu:
     def stop(self):
         self.__running__ = False
 
-    def worker(self, kwargs, task_id, src, task_type, wid):
-        worker_class = self.task_registered_map[task_type]
-        if not worker_class.forked:
-            worker_class.__init_socket__()
-            worker_class.forked = True
-        worker_class.mock(task_id, src, wid)
-        return worker_class.run(*kwargs["args"], **kwargs["kwargs"])
-
     def start(self):
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         self.print_banners()
@@ -223,8 +215,13 @@ class Shuniu:
                     self.state[task_name] = self.state.setdefault(task_name, 0) + 1
                     self.perform[wid] = task_id
                     self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
-                    future = self.pool.schedule(self.worker, args=task, kwargs={"wid": wid},
-                                                timeout=self.task_registered_map[task_type].timeout)
+                    worker_class = self.task_registered_map[task_type]
+                    if not worker_class.forked:
+                        worker_class.__init_socket__()
+                        worker_class.forked = True
+                    worker_class.mock(task_id, src, wid)
+                    future = self.pool.schedule(worker_class.run, args=kwargs["args"], kwargs=kwargs["kwargs"],
+                                                timeout=worker_class.timeout)
                     self.worker_future[task_id] = future
                     callback = functools.partial(self.task_over, **{
                         "worker_class": self.task_registered_map[task_type],
