@@ -137,7 +137,7 @@ class Shuniu:
                     f"Task {task_name}[{task_id}] succeeded in {runner_time}: {result}",
                     extra={"wid": wid},
                 )
-                if worker_class.ignore_result:
+                if not worker_class.ignore_result:
                     self.rpc.set(
                         task_id,
                         src,
@@ -168,7 +168,7 @@ class Shuniu:
                     f"Task {task_name}[{task_id}] failure in {runner_time}",
                     extra={"wid": wid},
                 )
-                if worker_class.ignore_result:
+                if not worker_class.ignore_result:
                     error = "".join(traceback.format_exception(*exc_info))
                     self.rpc.set(
                         task_id,
