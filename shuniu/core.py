@@ -54,15 +54,13 @@ class Shuniu:
         self.logger = set_logging("Shuniu", **kwargs)
 
     def initializer(self):
-        self.fork()
-        soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-        resource.setrlimit(resource.RLIMIT_AS, (1 * 1024 ** 3, hard))
-        self.logger.info("initializer fork set limit")
-
-    def fork(self):
         fork_session = self.rpc.new_session()
         fork_session.cookies = self.rpc.__api__.cookies.copy()
         self.rpc.__api__ = fork_session
+        # soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        # resource.setrlimit(resource.RLIMIT_AS, (1 * 1024 ** 3, hard))
+        self.logger.info("initializer fork set limit")
+
 
     def kill_worker(self, eid, *args, **kwargs):
         future = self.worker_future.get(eid)
