@@ -54,8 +54,8 @@ class Shuniu:
         self.logger = set_logging("Shuniu", **kwargs)
 
     def initializer(self):
-        self.logger.info("initializer fork set limit")
         self.fork()
+        self.logger.info("initializer fork set limit")
         # soft, hard = resource.getrlimit(resource.RLIMIT_AS)
         # resource.setrlimit(resource.RLIMIT_AS, (1 * 1024 ** 3, hard))
 
