@@ -469,8 +469,8 @@ class MyHTTPAdapter(requests.adapters.HTTPAdapter):
         super(MyHTTPAdapter, self).__init__(*args, **kwargs)
 
     def send(self, *args, **kwargs):
-        timeout = getattr(self, "timeout", 80)
-        return super(MyHTTPAdapter, self).send(*args, **kwargs, timeout=timeout)
+        kwargs.update(timeout=getattr(self, "timeout", 80))
+        return super(MyHTTPAdapter, self).send(*args, **kwargs)
 
 
 class ErrorCode(enum.IntEnum):
