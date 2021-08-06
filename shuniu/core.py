@@ -137,7 +137,7 @@ class Shuniu:
         for worker_id in range(self.conf["concurrency"]):
             task_queue = multiprocessing.Queue()
             worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, self.done_queue, self.log_queue)
-            self.worker_pool[worker_id] = worker
+            self.worker_pool[worker_id] = (worker, task_queue)
             worker.start()
         threading.Thread(target=self.done_processing).start()
         threading.Thread(target=self.log_processing).start()
