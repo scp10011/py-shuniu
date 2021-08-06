@@ -41,7 +41,7 @@ class TaskApp:
         if not self.__logger__:
             self.__logger__ = logging.getLogger("Worker")
             self.__logger__.setLevel(self.log_level.upper())
-        return self.log_level
+        return self.__logger__
 
 
 class TaskOption:
