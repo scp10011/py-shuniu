@@ -44,12 +44,12 @@ class Shuniu:
 
     def kill_worker(self, eid, *args, **kwargs):
         for worker_id, task_id in self.worker_future.items():
-            if task_id == eid:
-                self.logger.info(f"Terminate task: {eid}")
-                self.worker_pool[worker_id][0].terminate()
-                os.kill(self.worker_pool[worker_id][0].pid, signal.SIGKILL)
-            else:
-                self.logger.info(f"Terminate task does not exist: {eid}")
+            with contextlib.suppress(Exception):
+                if task_id == eid:
+                    self.logger.info(f"Terminate task: {eid}")
+                    os.kill(self.worker_pool[worker_id][0].pid, signal.SIGKILL)
+                else:
+                    self.logger.info(f"Terminate task does not exist: {eid}")
 
     def get_stats(self, *args, **kwargs):
         return {"history": self.state, "run": self.perform}
