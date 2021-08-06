@@ -15,16 +15,6 @@ class Signature:
         return self.rpc.broadcast(self.name, *args, **kwargs)
 
 
-class LogSender:
-    def __init__(self, log_queue: multiprocessing.Queue):
-        self.queue = log_queue
-
-    def __getattr__(self, item):
-        def processor(*args, **kwargs):
-            self.queue.put((item, args, kwargs))
-
-        return processor
-
 
 class TaskApp:
     def __init__(self, rpc, log_level):

@@ -1,21 +1,15 @@
 #!/usr/bin/python3
-import os
-import sys
+import contextlib
 import time
 import logging
-import traceback
 import functools
 import threading
 import urllib.parse
 import queue
 import multiprocessing
 
-from concurrent.futures import TimeoutError
-
 from typing import Dict
-from pebble import ProcessPool, ProcessExpired
-
-from shuniu.task import Task
+from shuniu.task import Task, TaskApp
 from shuniu.worker import Worker
 from shuniu.api import API, EmptyData
 from shuniu.tools import Singleton, WorkerLogFilter
@@ -23,6 +17,7 @@ from shuniu.tools import Singleton, WorkerLogFilter
 
 def initializer():
     print("初始化worker设置")
+
 
 @Singleton
 class Shuniu:
@@ -34,6 +29,7 @@ class Shuniu:
         self.rpc.login()
         self.rpc.get_task_list()
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
+        self.registry_map: Dict[int, Task] = {}
         self.pre_request = queue.Queue()
         for i in range(self.conf["concurrency"]):
             self.pre_request.put(i)
@@ -42,14 +38,18 @@ class Shuniu:
         self.perform = {}
         self.worker_future = {}
         self.__running__ = True
+        self.worker_pool = {}
+        self.log_queue = multiprocessing.Queue()
+        self.done_queue = multiprocessing.Queue()
         self.logger = set_logging("Shuniu", **kwargs)
-        self.worker = Worker(self.rpc, self.conf)
 
     def kill_worker(self, eid, *args, **kwargs):
-        future = self.worker_future.get(eid)
-        if future:
-            self.logger.info(f"Terminate task: {eid}")
-            future.cancel()
+        for worker_id, task_id in self.worker_future.items():
+            if task_id == eid:
+                self.logger.info(f"Terminate task: {eid}")
+                self.worker_pool[worker_id][0].terminate()
+            else:
+                self.logger.info(f"Terminate task does not exist: {eid}")
 
     def get_task_option(self, name):
         return self.get_task_class(name).option
@@ -69,13 +69,32 @@ class Shuniu:
             return self.registered(args[0])
         return functools.partial(self.registered, *args, **kwargs)
 
+    def daemon(self):
+        while 1:
+            for worker_id, (worker, stdin) in self.worker_pool.items():
+                with contextlib.suppress(Exception):
+                    worker.join(timeout=0)
+                    if not worker.is_alive():
+                        self.logger.error(f"worker {worker_id} is down..")
+                        task_queue = multiprocessing.Queue()
+                        worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, self.done_queue,
+                                        self.log_queue)
+                        self.worker_pool[worker_id] = (worker, task_queue)
+                        worker.start()
+            time.sleep(1)
+
     def registered(self, func: type(abs), name=None, base=None, **kwargs):
         if not name:
             name = f"{self.app}.{func.__name__}"
         elif name.count(".") != 1:
             raise ValueError("task name does not meet specifications")
         type_id = self.rpc.registered(name)
-        self.worker.registered(func, name, type_id, base, **kwargs)
+        if base and issubclass(base, Task):
+            worker_base = base
+        else:
+            worker_base = Task
+        app = TaskApp(self.rpc, self.conf["loglevel"])
+        self.registry_map[type_id] = worker_base(app=app, name=name, func=func, conf=self.conf, **kwargs)
 
     def manager(self, kws, instruction):
         self.control[instruction](*kws["args"], **kws["kwargs"])
@@ -107,114 +126,63 @@ class Shuniu:
         for tid, task in self.worker.task_registered_map.items():
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.option.ignore_result}")
 
-    def task_over(self, future, task_class: Task, task_id, wid, start_time, task_name, src):
-        self.worker_future.pop(task_id)
-        self.perform[wid] = None
-        runner_time = time.time() - start_time
-        try:
-            try:
-                result = future.result() or {}
-                self.rpc.ack(task_id)
-                task_class.on_success()
-                self.logger.info(
-                    f"Task {task_name}[{task_id}] succeeded in {runner_time}: {result}",
-                    extra={"wid": wid},
-                )
-                if not task_class.option.ignore_result:
-                    self.rpc.set(
-                        task_id,
-                        src,
-                        payload=result,
-                        serialization=task_class.option.serialization,
-                        compression=task_class.option.compression,
-                    )
-            except TimeoutError:
-                self.logger.exception("Task {task_name}[{task_id}] failure in {runner_time}: Timeout Kill exception",
-                                      extra={"wid": wid})
-                self.rpc.ack(task_id, retry=True)
-                task_class.on_failure(*sys.exc_info())
-            except ProcessExpired:
-                self.logger.exception("Task {task_name}[{task_id}] failure in {runner_time}: Manual kill exception",
-                                      extra={"wid": wid})
-                self.rpc.ack(task_id, fail=True)
-                task_class.on_failure(*sys.exc_info())
-            except Exception as e:
-                exc_info = sys.exc_info()
-                if any(isinstance(e, ex) for ex in task_class.option.autoretry_for):
-                    self.logger.exception("Autoretry exception", extra={"wid": wid})
-                    self.rpc.ack(task_id, retry=True)
-                else:
-                    self.logger.exception("Unknown exception", extra={"wid": wid})
-                    self.rpc.ack(task_id, fail=True)
-                task_class.on_failure(*exc_info)
-                self.logger.info(
-                    f"Task {task_name}[{task_id}] failure in {runner_time}",
-                    extra={"wid": wid},
-                )
-                if not task_class.option.ignore_result:
-                    error = "".join(traceback.format_exception(*exc_info))
-                    self.rpc.set(
-                        task_id,
-                        src,
-                        payload={"__traceback__": error},
-                        serialization=task_class.option.serialization,
-                        compression=task_class.option.compression,
-                    )
-        except Exception:
-            self.logger.exception("Unknown exception")
-        self.pre_request.put(wid)
-
     def stop(self):
         self.__running__ = False
+
+    def log_processing(self):
+        while 1:
+            with contextlib.suppress(Exception):
+                item, args, kwargs = self.log_queue.get()
+                getattr(self.logger, item)(*args, **kwargs)
+
+    def done_processing(self):
+        while 1:
+            done = self.done_queue.get()
+            self.perform[done] = None
+            self.pre_queue.put(done)
 
     def start(self):
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         self.print_banners()
+        for worker_id in range(self.conf["concurrency"]):
+            task_queue = multiprocessing.Queue()
+            worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, self.done_queue, self.log_queue)
+            self.worker_pool[worker_id] = worker
+            worker.start()
+        threading.Thread(target=self.done_processing).start()
+        threading.Thread(target=self.log_processing).start()
+        threading.Thread(target=self.daemon).start()
         if self.conf["worker_enable_remote_control"]:
             threading.Thread(target=self.manager_worker).start()
         for task in self.rpc.unconfirmed():
             task_name = self.rpc.task_map[task["type_id"]]
             self.logger.info(f"Unidentified worker[{task['wid']}] task-> {task_name}[{task['tid']}]")
             self.rpc.ack(task["tid"], False, True)
-        with ProcessPool(max_workers=self.conf["concurrency"], initializer=initializer) as pool:
-            while self.__running__:
-                wid = self.pre_request.get()
-                while 1:
-                    try:
-                        task = self.rpc.consume(wid)
-                    except IOError:
-                        self.logger.error("Retry after connection loss...")
-                        time.sleep(2)
-                        continue
-                    except Exception:
-                        self.logger.exception("Failed to get task")
-                        continue
-                    if task is EmptyData:
-                        continue
-                    try:
-                        kwargs, task_id, src, task_type = task
-                        task_name = self.rpc.task_map[task_type]
-                        self.logger.info(f"Received task to worker-{wid}: {task_name}[{task_id}]")
-                        self.state[task_name] = self.state.setdefault(task_name, 0) + 1
-                        self.perform[wid] = task_id
-                        self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
-                        function = functools.partial(self.worker.run, task=task, wid=wid)
-                        task_class = self.get_task_class(task_name)
-                        future = pool.schedule(function, args=kwargs["args"], kwargs=kwargs["kwargs"],
-                                               timeout=task_class.option.timeout)
-                        self.worker_future[task_id] = future
-                        callback = functools.partial(self.task_over, **{
-                            "task_class": task_class,
-                            "task_id": task_id,
-                            "src": src,
-                            "task_name": task_name,
-                            "wid": wid,
-                            "start_time": time.time()
-                        })
-                        future.add_done_callback(callback)
-                    except Exception:
-                        self.logger.exception("Send task failure")
-                    break
+        while 1:
+            worker_id = self.pre_request.get()
+            while 1:
+                try:
+                    task = self.rpc.consume(worker_id)
+                except IOError:
+                    self.logger.error("Retry after connection loss...")
+                    time.sleep(2)
+                    continue
+                except Exception:
+                    self.logger.exception("Failed to get task")
+                    continue
+                if task is EmptyData:
+                    continue
+                try:
+                    kwargs, task_id, src, task_type = task
+                    self.worker_future[worker_id] = task_id
+                    task_name = self.rpc.task_map[task_type]
+                    self.logger.info(f"Received task to worker-{worker_id}: {task_name}[{task_id}]")
+                    self.state[task_name] = self.state.setdefault(task_name, 0) + 1
+                    self.perform[worker_id] = task_id
+                    self.worker_pool[worker_id][1].put(task)
+                except Exception:
+                    continue
+                break
 
 
 def urlparse(uri) -> Dict:

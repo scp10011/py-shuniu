@@ -1,77 +1,94 @@
-import logging
+import sys
+import time
+import traceback
 import multiprocessing
-import os
-import signal
-from collections import namedtuple
-from typing import Dict
 
-from shuniu.task import TaskApp, Task, TaskOption
-from shuniu.api import API
-
-Request = namedtuple("Request", ["type", "id", "worker", "src", "args", "kwargs"])
-Result = namedtuple("Result", ["type", "id", "worker", "src", "result", "exception", "option"])
-Event = namedtuple("Event", ["type", "id", "args", "kwargs"])
+from shuniu.task import Task
 
 
-class Worker:
-    def __init__(self, rpc: API, conf):
-        self.run_id = None
+class LogSender:
+    def __init__(self, log_queue: multiprocessing.Queue, worker_id: int):
+        self.queue = log_queue
+        self.wid = worker_id
+
+    def __getattr__(self, item):
+        def processor(*args, **kwargs):
+            kwargs = {**kwargs, "extra": {"wid": self.wid}}
+            self.queue.put((item, args, kwargs))
+
+        return processor
+
+
+class Worker(multiprocessing.Process):
+    def __init__(self, registry, rpc, worker_id, task_queue, done_queue, log_queue):
+        super().__init__()
         self.rpc = rpc
-        self.conf = conf
-        self.task_registered_map: Dict[int, Task] = {}
-        self.__fork__ = False
+        self.worker_id = worker_id
+        self.registry = registry
+        self.task_queue = task_queue
+        self.done_queue = done_queue
+        self.log_queue = log_queue
+        self.logger = LogSender(log_queue, self.worker_id)
+        self.fork()
 
-    def worker_fork(self):
+    def fork(self):
         fork_session = self.rpc.new_session()
         fork_session.cookies = self.rpc.__api__.cookies.copy()
         self.rpc.__api__ = fork_session
-        self.__fork__ = True
 
-    def registered(self, func: type(abs), name, type_id, base=None, **kwargs):
-        if base and issubclass(base, Task):
-            worker_base = base
-        else:
-            worker_base = Task
-        self.task_registered_map[type_id] = worker_base(
-            app=TaskApp(self.rpc, self.conf["loglevel"]),
-            name=name,
-            func=func,
-            conf=self.conf,
-            **kwargs
-        )
-
-    def run(self, task_type, task_id, wid, start_time, task_name, src, *args, **kwargs):
-        if not self.__fork__:
-            self.worker_fork()
-        worker_class = self.task_registered_map[task_type]
-        if not worker_class.forked:
-            worker_class.__init_socket__()
-            worker_class.forked = True
-        worker_class.mock(task_id, src, wid)
-        return worker_class(*args, **kwargs)
-
-
-class Scheduler:
-    def __init__(self, rpc, conf, concurrent):
-        self.task_queue = multiprocessing.Queue()
-        self.result_queue = multiprocessing.Queue()
-        self.log_queue = multiprocessing.Queue()
-        self.worker = Worker(rpc, conf, self.task_queue, self.result_queue, self.log_queue)
-        self.pool = multiprocessing.Pool(concurrent)
-        self.worker_process: Dict[int, multiprocessing.Process] = {}
-
-    def add_worker(self):
-        self.pool.apply_async(self.worker.run)
-
-    def terminate(self, worker):
-        t = self.worker_process.get(worker)
-        t.terminate()
-        self.add_worker()
-
-    def schedule(self, task_type, tid, worker, src, args, kwargs):
-        request = Request(task_type, tid, worker, src, args, kwargs)
-        self.task_queue.put(request)
-
-    def daemon(self):
+    def run(self) -> None:
         while 1:
-            self.pool.terminate()
+            task = self.task_queue.get()
+            kwargs, task_id, src, task_type = task
+            task_class = self.registry[task_type]
+            if not task_class.forked:
+                task_class.__init_socket__()
+                task_class.forked = True
+            task_class.mock(task_id=task_id, src=src, wid=self.worker_id)
+            try:
+                self.execute(task_class, kwargs["args"], kwargs["kwargs"])
+            except Exception as e:
+                self.logger.error(f"processing status failed: {e}")
+            finally:
+                self.done()
+
+    def execute(self, task: Task, args, kwargs):
+        start_time = time.time()
+        self.logger.info(f"Start {task.name}[{task.task_id}]")
+        try:
+            result = task(*args, **kwargs)
+            self.rpc.ack(task.task_id)
+        except Exception as e:
+            exc_info = sys.exc_info()
+            error = "".join(traceback.format_exception(*exc_info))
+            if any(isinstance(e, ex) for ex in task.option.autoretry_for):
+                self.rpc.ack(task.task_id, retry=True)
+                self.logger.exception("autoretry exception")
+            else:
+                self.rpc.ack(task.task_id, fail=True)
+                self.logger.exception("unknown exception")
+            if not task.option.ignore_result:
+                self.rpc.set(
+                    task.task_id,
+                    task.src,
+                    payload={"__traceback__": error},
+                    serialization=task.option.serialization,
+                    compression=task.option.compression,
+                )
+            self.logger.info(f"Task {task.name}[{task.task_id}] failure in {time.time() - start_time}")
+            task.on_failure(*exc_info)
+        else:
+            result = {} if isinstance(result, type(None)) else result
+            if not task.option.ignore_result:
+                self.rpc.set(
+                    task.task_id,
+                    task.src,
+                    payload=result,
+                    serialization=task.option.serialization,
+                    compression=task.option.compression,
+                )
+            self.logger.info(f"Task {task.name}[{task.task_id}] succeeded in {time.time() - start_time}: {result}")
+            task.on_success()
+
+    def done(self):
+        self.done_queue.put(self.worker_id)
