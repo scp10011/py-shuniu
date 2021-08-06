@@ -40,6 +40,7 @@ class Shuniu:
         self.worker_future = {}
         self.__running__ = True
         self.logger = set_logging("Shuniu", **kwargs)
+        self.log_queue = multiprocessing.Queue()
 
     def initializer(self):
         fork_session = self.rpc.new_session()
@@ -78,12 +79,22 @@ class Shuniu:
         else:
             worker_base = Task
         self.task_registered_map[type_id] = worker_base(
-            app=TaskApp(self.rpc, self.logger.level),
+            app=TaskApp(self.rpc, self.log_queue),
             name=name,
             func=func,
             conf=self.conf,
             **kwargs
         )
+
+    def log_processor(self):
+        while self.__running__:
+            item, args, kwargs = self.log_queue.get()
+            call = getattr(self.logger, item)
+            if call:
+                try:
+                    call(*args, **kwargs)
+                except:
+                    self.logger.exception("log processor error")
 
     def manager(self, kws, instruction):
         self.control[instruction](*kws["args"], **kws["kwargs"])
@@ -188,6 +199,7 @@ class Shuniu:
         self.print_banners()
         if self.conf["worker_enable_remote_control"]:
             threading.Thread(target=self.manager_worker).start()
+        threading.Thread(target=self.log_processor).start()
         for task in self.rpc.unconfirmed():
             task_name = self.rpc.task_map[task["type_id"]]
             self.logger.info(f"Unidentified worker[{task['wid']}] task-> {task_name}[{task['tid']}]")
