@@ -1,6 +1,5 @@
 import sys
 import time
-import signal
 import traceback
 import multiprocessing
 
@@ -22,17 +21,6 @@ class LogSender:
         return processor
 
 
-def handle_signal(*args):
-    global RUNNING
-    print("RUNNING is False")
-    RUNNING = False
-
-
-signal.signal(signal.SIGINT, handle_signal)
-signal.signal(signal.SIGHUP, handle_signal)
-signal.signal(signal.SIGTERM, handle_signal)
-
-
 class Worker(multiprocessing.Process):
     def __init__(self, registry, rpc, worker_id, task_queue, done_queue, log_queue):
         super().__init__()
@@ -52,14 +40,14 @@ class Worker(multiprocessing.Process):
 
     def run(self) -> None:
         while RUNNING:
-            task = self.task_queue.get()
-            kwargs, task_id, src, task_type = task
-            task_class = self.registry[task_type]
-            if not task_class.forked:
-                task_class.__init_socket__()
-                task_class.forked = True
-            task_class.mock(task_id=task_id, src=src, wid=self.worker_id)
             try:
+                task = self.task_queue.get()
+                kwargs, task_id, src, task_type = task
+                task_class = self.registry[task_type]
+                if not task_class.forked:
+                    task_class.__init_socket__()
+                    task_class.forked = True
+                task_class.mock(task_id=task_id, src=src, wid=self.worker_id)
                 self.execute(task_class, kwargs["args"], kwargs["kwargs"])
             except Exception as e:
                 self.logger.error(f"processing status failed: {e}")
