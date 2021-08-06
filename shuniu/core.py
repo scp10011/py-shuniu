@@ -2,6 +2,7 @@
 import os
 import queue
 import signal
+import sys
 import time
 import logging
 import functools
@@ -36,6 +37,7 @@ class Shuniu:
         self.state = {}
         self.perform = {}
         self.worker_future = {}
+        self.worker_timeout = {}
         self.__running__ = True
         self.worker_pool: Dict[int, tuple[Worker, queue.Queue, queue.Queue, queue.Queue]] = {}
         self.logger = set_logging("shuniu", **kwargs)
@@ -119,6 +121,22 @@ class Shuniu:
             os.kill(os.getpid(), signal.SIGKILL)
         self.__running__ = False
 
+    def time_processing(self):
+        while self.__running__ and not time.sleep(1):
+            for worker_id, (timeout, task_type, task_id, src, worker_id) in self.worker_timeout.items():
+                if timeout and timeout < time.time():
+                    os.kill(self.worker_pool[worker_id][0].pid, signal.SIGUSR1)
+                    self.logger.info(f"Task execution time is too long: {task_id}")
+                    task_class = self.registry_map[task_type]
+                    task_class.mock(task_id, src, worker_id)
+                    try:
+                        raise TimeoutError(f"Task execution time is too long: {task_id}")
+                    except TimeoutError:
+                        with contextlib.suppress(Exception):
+                            task_class.on_failure(*sys.exc_info())
+                    self.worker_timeout[worker_id] = (None, None, None, None, None)
+                    task_class.mock(None, None, None)
+
     def log_processing(self, log_queue):
         while self.__running__:
             try:
@@ -133,6 +151,7 @@ class Shuniu:
         while self.__running__:
             try:
                 worker_id = done_queue.get()
+                self.worker_timeout[worker_id] = (None, None, None, None, None)
                 self.perform[worker_id] = None
                 pre_request.put(worker_id)
             except (ValueError, OSError):
@@ -156,6 +175,7 @@ class Shuniu:
         log_queue = manager.Queue()
         for worker_id in range(self.conf["concurrency"]):
             self.new_worker(worker_id, manager.Queue(), done_queue, log_queue, pre_request)
+        threading_pool.append(threading.Thread(target=self.time_processing))
         threading_pool.append(threading.Thread(target=self.daemon, args=(pre_request,)))
         threading_pool.append(threading.Thread(target=self.log_processing, args=(log_queue,)))
         threading_pool.append(threading.Thread(target=self.done_processing, args=(done_queue, pre_request,)))
@@ -182,11 +202,17 @@ class Shuniu:
                     continue
                 try:
                     kwargs, task_id, src, task_type = task
+                    if task_type not in self.registry_map:
+                        self.rpc.ack(task_id, fail=True)
+                        self.logger.error(f"task is not registered: {task_type}")
+                        continue
                     self.worker_future[worker_id] = task_id
                     task_name = self.rpc.task_map[task_type]
                     self.logger.info(f"Received task to worker-{worker_id}: {task_name}[{task_id}]")
                     self.state[task_name] = self.state.setdefault(task_name, 0) + 1
                     self.perform[worker_id] = task_id
+                    end_time = self.registry_map[task_type].option.timeout + time.time()
+                    self.worker_timeout[worker_id] = (end_time, task_type, task_id, src, worker_id)
                     self.worker_pool[worker_id][1].put(task)
                 except Exception:
                     continue
