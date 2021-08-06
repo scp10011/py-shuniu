@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 import contextlib
+import os
+import signal
 import time
 import logging
 import functools
@@ -118,6 +120,8 @@ class Shuniu:
 
     def stop(self):
         self.logger.info("Close order received")
+        if not self.__running__:
+            os.kill(os.getpid(), signal.SIGKILL)
         self.__running__ = False
 
     def log_processing(self):
