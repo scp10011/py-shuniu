@@ -85,7 +85,7 @@ class Task:
         self.app = app
         self.func = func
         self.conf = conf
-        self.option = TaskOption(**kwargs)
+        self.option = TaskOption(self.conf, **kwargs)
         if self.option.unknown:
             app.logger.warning(f"Unknown parameter: {self.option.unknown}")
         self.forked = False
