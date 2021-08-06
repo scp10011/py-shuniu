@@ -56,14 +56,12 @@ class Shuniu:
             future.cancel()
 
     def get_task_option(self, name):
-        if name in self.worker.task_registered_map:
-            return self.worker.task_registered_map[name].option
-        else:
-            raise NameError(f"{name} not registered")
+        return self.get_task_class(name).option
 
     def get_task_class(self, name):
-        if name in self.worker.task_registered_map:
-            return self.worker.task_registered_map[name]
+        type_id = self.rpc.registered(name)
+        if type_id in self.worker.task_registered_map:
+            return self.worker.task_registered_map[type_id]
         else:
             raise NameError(f"{name} not registered")
 
