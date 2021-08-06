@@ -12,6 +12,7 @@ class LogSender:
     def __init__(self, log_queue: multiprocessing.Queue, worker_id: int):
         self.queue = log_queue
         self.wid = worker_id
+        self.__logger__ = multiprocessing.get_logger()
 
     def __getattr__(self, item):
         def processor(*args, **kwargs):
@@ -19,7 +20,7 @@ class LogSender:
             try:
                 self.queue.put((item, args, kwargs))
             except:
-                traceback.print_exc()
+                self.__logger__.exception("log put error")
 
         return processor
 
@@ -97,4 +98,7 @@ class Worker(multiprocessing.Process):
             task.on_success()
 
     def done(self):
-        self.done_queue.put(self.worker_id)
+        try:
+            self.done_queue.put(self.worker_id)
+        except:
+            self.logger.exception("put worker_id error")
