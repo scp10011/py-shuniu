@@ -19,6 +19,13 @@ class Worker:
         self.rpc = rpc
         self.conf = conf
         self.task_registered_map: Dict[int, Task] = {}
+        self.__fork__ = False
+
+    def worker_fork(self):
+        fork_session = self.rpc.new_session()
+        fork_session.cookies = self.rpc.__api__.cookies.copy()
+        self.rpc.__api__ = fork_session
+        self.__fork__ = True
 
     def registered(self, func: type(abs), name, type_id, base=None, **kwargs):
         if base and issubclass(base, Task):
@@ -34,6 +41,8 @@ class Worker:
         )
 
     def run(self, task_type, task_id, wid, start_time, task_name, src, *args, **kwargs):
+        if not self.__fork__:
+            self.worker_fork()
         worker_class = self.task_registered_map[task_type]
         if not worker_class.forked:
             worker_class.__init_socket__()

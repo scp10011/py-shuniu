@@ -21,6 +21,9 @@ from shuniu.api import API, EmptyData
 from shuniu.tools import Singleton, WorkerLogFilter
 
 
+def initializer():
+    print("初始化worker设置")
+
 @Singleton
 class Shuniu:
     def __init__(self, app: str, rpc_server: str, **kwargs):
@@ -41,12 +44,6 @@ class Shuniu:
         self.__running__ = True
         self.logger = set_logging("Shuniu", **kwargs)
         self.worker = Worker(self.rpc, self.conf)
-
-    def initializer(self):
-        fork_session = self.rpc.new_session()
-        fork_session.cookies = self.rpc.__api__.cookies.copy()
-        self.rpc.__api__ = fork_session
-        self.logger.info("initializer fork set limit")
 
     def kill_worker(self, eid, *args, **kwargs):
         future = self.worker_future.get(eid)
@@ -179,7 +176,7 @@ class Shuniu:
             task_name = self.rpc.task_map[task["type_id"]]
             self.logger.info(f"Unidentified worker[{task['wid']}] task-> {task_name}[{task['tid']}]")
             self.rpc.ack(task["tid"], False, True)
-        with ProcessPool(max_workers=self.conf["concurrency"], initializer=self.initializer) as pool:
+        with ProcessPool(max_workers=self.conf["concurrency"], initializer=initializer) as pool:
             while self.__running__:
                 wid = self.pre_request.get()
                 while 1:
