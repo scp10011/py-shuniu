@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import contextlib
 import os
+import queue
 import signal
 import time
 import logging
@@ -44,6 +45,7 @@ class Shuniu:
             if task_id == eid:
                 self.logger.info(f"Terminate task: {eid}")
                 self.worker_pool[worker_id][0].terminate()
+                os.kill(self.worker_pool[worker_id][0].pid, signal.SIGKILL)
             else:
                 self.logger.info(f"Terminate task does not exist: {eid}")
 
@@ -55,18 +57,15 @@ class Shuniu:
             return self.registered(args[0])
         return functools.partial(self.registered, *args, **kwargs)
 
-    def daemon(self, done_queue, log_queue):
+    def daemon(self, pre_request):
         while self.__running__ and not time.sleep(1):
-            for worker_id, (worker, stdin) in self.worker_pool.items():
+            for worker_id, (worker, *queue) in self.worker_pool.items():
                 with contextlib.suppress(Exception):
                     worker.join(timeout=0)
                     if not worker.is_alive():
+                        [i.close() for i in queue]
                         self.logger.error(f"worker {worker_id} is down..")
-                        task_queue = multiprocessing.Queue()
-                        worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, done_queue,
-                                        log_queue)
-                        self.worker_pool[worker_id] = (worker, task_queue)
-                        worker.start()
+                        self.new_worker(worker_id, pre_request)
 
     def registered(self, func: type(abs), name=None, base=None, **kwargs):
         if not name:
@@ -122,34 +121,39 @@ class Shuniu:
             try:
                 item, args, kwargs = log_queue.get()
                 getattr(self.logger, item)(*args, **kwargs)
+            except (ValueError, OSError):
+                break
             except Exception:
                 self.logger.exception("log_processing exception")
 
-    def done_processing(self, done_queue, pre_request):
+    def done_processing(self, done_queue, pre_request, worker_id):
         while self.__running__:
             try:
                 done = done_queue.get()
-                self.perform[done] = None
-                pre_request.put(done)
+                self.perform[worker_id] = None
+                pre_request.put(worker_id)
+            except (ValueError, OSError):
+                break
             except Exception:
                 self.logger.exception("done_processing exception")
 
+    def new_worker(self, worker_id, pre_request):
+        pre_request.put(worker_id)
+        task_queue, log_queue, done_queue = [multiprocessing.Queue() for _ in range(3)]
+        worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, done_queue, log_queue)
+        self.worker_pool[worker_id] = (worker, task_queue, done_queue, log_queue)
+        threading.Thread(target=self.done_processing, args=(done_queue, pre_request, worker_id)).start()
+        threading.Thread(target=self.log_processing, args=(log_queue,)).start()
+        worker.start()
+
     def start(self):
-        log_queue = multiprocessing.Queue()
-        done_queue = multiprocessing.Queue()
-        pre_request = multiprocessing.Queue()
+        pre_request = queue.Queue()
         threading_pool = []
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         self.print_banners()
         for worker_id in range(self.conf["concurrency"]):
-            pre_request.put(worker_id)
-            task_queue = multiprocessing.Queue()
-            worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, done_queue, log_queue)
-            self.worker_pool[worker_id] = (worker, task_queue)
-            worker.start()
-        threading_pool.append(threading.Thread(target=self.done_processing, args=(done_queue, pre_request)))
-        threading_pool.append(threading.Thread(target=self.log_processing, args=(log_queue,)))
-        threading_pool.append(threading.Thread(target=self.daemon, args=(done_queue, log_queue,)))
+            self.new_worker(worker_id, pre_request)
+        threading_pool.append(threading.Thread(target=self.daemon, args=(pre_request,)))
         if self.conf["worker_enable_remote_control"]:
             threading_pool.append(threading.Thread(target=self.manager_worker))
         [i.start() for i in threading_pool]
