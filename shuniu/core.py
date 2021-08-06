@@ -124,7 +124,7 @@ class Shuniu:
 [tasks]"""
         )
         for tid, task in self.task_registered_map.items():
-            print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.ignore_result}")
+            print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.option.ignore_result}")
 
     def task_over(self, future, task_class, task_id, wid, start_time, task_name, src):
         self.worker_future.pop(task_id)
