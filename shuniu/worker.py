@@ -1,9 +1,12 @@
 import sys
 import time
+import signal
 import traceback
 import multiprocessing
 
 from shuniu.task import Task
+
+RUNNING = True
 
 
 class LogSender:
@@ -17,6 +20,16 @@ class LogSender:
             self.queue.put((item, args, kwargs))
 
         return processor
+
+
+def handle_signal(*args):
+    global RUNNING
+    RUNNING = False
+
+
+signal.signal(signal.SIGINT, handle_signal)
+signal.signal(signal.SIGHUP, handle_signal)
+signal.signal(signal.SIGTERM, handle_signal)
 
 
 class Worker(multiprocessing.Process):
@@ -37,7 +50,7 @@ class Worker(multiprocessing.Process):
         self.rpc.__api__ = fork_session
 
     def run(self) -> None:
-        while 1:
+        while RUNNING:
             task = self.task_queue.get()
             kwargs, task_id, src, task_type = task
             task_class = self.registry[task_type]
