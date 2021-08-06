@@ -16,6 +16,7 @@ from typing import Dict
 from pebble import ProcessPool, ProcessExpired
 
 from shuniu.task import Task, TaskApp
+from shuniu.worker import Worker
 from shuniu.api import API, EmptyData
 from shuniu.tools import Singleton, WorkerLogFilter
 
@@ -41,6 +42,7 @@ class Shuniu:
         self.__running__ = True
         self.logger = set_logging("Shuniu", **kwargs)
         self.log_queue = multiprocessing.Queue()
+        self.worker = Worker(self.rpc, self.conf, self.log_queue)
 
     def initializer(self):
         fork_session = self.rpc.new_session()
@@ -73,18 +75,7 @@ class Shuniu:
             name = f"{self.app}.{func.__name__}"
         elif name.count(".") != 1:
             raise ValueError("task name does not meet specifications")
-        type_id = self.rpc.registered(name)
-        if base and issubclass(base, Task):
-            worker_base = base
-        else:
-            worker_base = Task
-        self.task_registered_map[type_id] = worker_base(
-            app=TaskApp(self.rpc, self.log_queue),
-            name=name,
-            func=func,
-            conf=self.conf,
-            **kwargs
-        )
+        self.worker.registered(func, name, base, **kwargs)
 
     def log_processor(self):
         while self.__running__:
@@ -183,14 +174,6 @@ class Shuniu:
             self.logger.exception("Unknown exception")
         self.pre_request.put(wid)
 
-    def worker(self, task_type, task_id, wid, start_time, task_name, src, *args, **kwargs):
-        worker_class = self.task_registered_map[task_type]
-        if not worker_class.forked:
-            worker_class.__init_socket__()
-            worker_class.forked = True
-        worker_class.mock(task_id, src, wid)
-        worker_class(*args, **kwargs)
-
     def stop(self):
         self.__running__ = False
 
@@ -226,7 +209,7 @@ class Shuniu:
                         self.state[task_name] = self.state.setdefault(task_name, 0) + 1
                         self.perform[wid] = task_id
                         self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
-                        function = functools.partial(self.worker, task=task, wid=wid)
+                        function = functools.partial(self.worker.run, task=task, wid=wid)
                         task_class = self.task_registered_map[task_type]
                         future = pool.schedule(function, args=kwargs["args"], kwargs=kwargs["kwargs"],
                                                timeout=task_class.option.timeout)

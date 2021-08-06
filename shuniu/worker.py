@@ -14,28 +14,13 @@ Event = namedtuple("Event", ["type", "id", "args", "kwargs"])
 
 
 class Worker:
-    def __init__(self,
-                 rpc: API,
-                 conf,
-                 task_queue: multiprocessing.Queue,
-                 result_queue: multiprocessing.Queue,
-                 log_queue: multiprocessing.Queue,
-                 event_queue: multiprocessing.Queue,
-                 ):
+    def __init__(self, rpc: API, conf, log_queue):
         self.run_id = None
         self.rpc = rpc
         self.conf = conf
-        self.task_queue = task_queue
-        self.result_queue = result_queue
         self.log_queue = log_queue
-        self.event_queue = event_queue
         self.task_registered_map: Dict[int, Task] = {}
-
-    def daemon(self):
-        while 1:
-            self.event_queue.get()
-
-
+        self.is_fork = False
 
     def fork(self):
         fork_session = self.rpc.new_session()
@@ -56,27 +41,15 @@ class Worker:
             **kwargs
         )
 
-    def run(self):
-        self.fork()
-        while 1:
-            self.run_id = None
-            task: Request = self.task_queue.get()
-            self.run_id = task.id
-            call = self.task_registered_map[task.type]
-            try:
-                self.execute(call, task)
-            except Exception as e:
-                self.done(task, exception=e, option=call.option)
-
-    def execute(self, call, task: Request):
-        result = call(task.id, task.src, task.worker, task.args, task.kwargs)
-        self.done(task, result=result, option=call.option)
-
-    def done(self, task: Request, result=None, exception=None, option=None):
-        self.result_queue.put(Result(task.type, task.id, task.worker, task.src, result, exception, option))
-
-    def terminate(self):
-        self
+    def run(self, task_type, task_id, wid, start_time, task_name, src, *args, **kwargs):
+        if not self.is_fork:
+            self.fork()
+        worker_class = self.task_registered_map[task_type]
+        if not worker_class.forked:
+            worker_class.__init_socket__()
+            worker_class.forked = True
+        worker_class.mock(task_id, src, wid)
+        return worker_class(*args, **kwargs)
 
 
 class Scheduler:
