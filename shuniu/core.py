@@ -7,7 +7,6 @@ import logging
 import functools
 import threading
 import urllib.parse
-import queue
 import multiprocessing
 
 from typing import Dict
@@ -23,10 +22,6 @@ def initializer():
 
 @Singleton
 class Shuniu:
-    log_queue = None
-    done_queue = None
-    pre_request = None
-
     def __init__(self, app: str, rpc_server: str, **kwargs):
         self.app = app
         self.rpc_server = rpc_server
@@ -60,7 +55,7 @@ class Shuniu:
             return self.registered(args[0])
         return functools.partial(self.registered, *args, **kwargs)
 
-    def daemon(self):
+    def daemon(self, done_queue, log_queue):
         while self.__running__ and not time.sleep(1):
             for worker_id, (worker, stdin) in self.worker_pool.items():
                 with contextlib.suppress(Exception):
@@ -68,8 +63,8 @@ class Shuniu:
                     if not worker.is_alive():
                         self.logger.error(f"worker {worker_id} is down..")
                         task_queue = multiprocessing.Queue()
-                        worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, self.done_queue,
-                                        self.log_queue)
+                        worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, done_queue,
+                                        log_queue)
                         self.worker_pool[worker_id] = (worker, task_queue)
                         worker.start()
 
@@ -122,27 +117,27 @@ class Shuniu:
             os.kill(os.getpid(), signal.SIGKILL)
         self.__running__ = False
 
-    def log_processing(self):
+    def log_processing(self, log_queue):
         while self.__running__:
             try:
-                item, args, kwargs = self.log_queue.get()
+                item, args, kwargs = log_queue.get()
                 getattr(self.logger, item)(*args, **kwargs)
             except Exception:
                 self.logger.exception("log_processing exception")
 
-    def done_processing(self):
+    def done_processing(self, done_queue, pre_request):
         while self.__running__:
             try:
-                done = self.done_queue.get()
+                done = done_queue.get()
                 self.perform[done] = None
-                self.pre_request.put(done)
+                pre_request.put(done)
             except Exception:
                 self.logger.exception("done_processing exception")
 
     def start(self):
-        self.log_queue = multiprocessing.Queue()
-        self.done_queue = multiprocessing.Queue()
-        self.pre_request = multiprocessing.Queue()
+        log_queue = multiprocessing.Queue()
+        done_queue = multiprocessing.Queue()
+        pre_request = multiprocessing.Queue()
         for i in range(self.conf["concurrency"]):
             self.pre_request.put(i)
         threading_pool = []
@@ -150,12 +145,12 @@ class Shuniu:
         self.print_banners()
         for worker_id in range(self.conf["concurrency"]):
             task_queue = multiprocessing.Queue()
-            worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, self.done_queue, self.log_queue)
+            worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, done_queue, log_queue)
             self.worker_pool[worker_id] = (worker, task_queue)
             worker.start()
-        threading_pool.append(threading.Thread(target=self.done_processing, ))
-        threading_pool.append(threading.Thread(target=self.log_processing))
-        threading_pool.append(threading.Thread(target=self.daemon))
+        threading_pool.append(threading.Thread(target=self.done_processing, args=(done_queue, pre_request)))
+        threading_pool.append(threading.Thread(target=self.log_processing, args=(log_queue,)))
+        threading_pool.append(threading.Thread(target=self.daemon, args=(done_queue, log_queue,)))
         if self.conf["worker_enable_remote_control"]:
             threading_pool.append(threading.Thread(target=self.manager_worker))
         [i.start() for i in threading_pool]
