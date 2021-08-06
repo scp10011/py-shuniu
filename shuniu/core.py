@@ -60,7 +60,7 @@ class Shuniu:
         return functools.partial(self.registered, *args, **kwargs)
 
     def daemon(self):
-        while 1:
+        while self.__running__:
             for worker_id, (worker, stdin) in self.worker_pool.items():
                 with contextlib.suppress(Exception):
                     worker.join(timeout=0)
@@ -90,7 +90,7 @@ class Shuniu:
         self.control[instruction](*kws["args"], **kws["kwargs"])
 
     def manager_worker(self):
-        while 1:
+        while self.__running__:
             try:
                 instruction = self.rpc.manager()
             except IOError:
@@ -120,18 +120,19 @@ class Shuniu:
         self.__running__ = False
 
     def log_processing(self):
-        while 1:
+        while self.__running__:
             with contextlib.suppress(Exception):
                 item, args, kwargs = self.log_queue.get()
                 getattr(self.logger, item)(*args, **kwargs)
 
     def done_processing(self):
-        while 1:
+        while self.__running__:
             done = self.done_queue.get()
             self.perform[done] = None
             self.pre_request.put(done)
 
     def start(self):
+        threading_pool = []
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         self.print_banners()
         for worker_id in range(self.conf["concurrency"]):
@@ -139,11 +140,12 @@ class Shuniu:
             worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, self.done_queue, self.log_queue)
             self.worker_pool[worker_id] = (worker, task_queue)
             worker.start()
-        threading.Thread(target=self.done_processing).start()
-        threading.Thread(target=self.log_processing).start()
-        threading.Thread(target=self.daemon).start()
+        threading_pool.append(threading.Thread(target=self.done_processing))
+        threading_pool.append(threading.Thread(target=self.log_processing))
+        threading_pool.append(threading.Thread(target=self.daemon))
         if self.conf["worker_enable_remote_control"]:
-            threading.Thread(target=self.manager_worker).start()
+            threading_pool.append(threading.Thread(target=self.manager_worker))
+        [i.start() for i in threading_pool]
         for task in self.rpc.unconfirmed():
             task_name = self.rpc.task_map[task["type_id"]]
             self.logger.info(f"Unidentified worker[{task['wid']}] task-> {task_name}[{task['tid']}]")
@@ -178,7 +180,14 @@ class Shuniu:
             if not any(self.perform.values()):
                 break
             time.sleep(1)
+        self.log_queue.close()
+        self.done_queue.close()
         self.logger.info("Completely leave the ownership mission")
+        [i.join() for i in threading_pool]
+        for worker_id, (worker, task_queue) in self.worker_pool.items():
+            self.logger.info(f"Terminate the process: {worker_id}")
+            task_queue.close()
+            worker.terminate()
 
 
 def urlparse(uri) -> Dict:
