@@ -41,6 +41,7 @@ class Worker(multiprocessing.Process):
     def run(self) -> None:
         while RUNNING:
             try:
+                self.logger.info("task_queue->get")
                 task = self.task_queue.get()
                 kwargs, task_id, src, task_type = task
                 task_class = self.registry[task_type]
