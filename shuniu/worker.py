@@ -45,7 +45,6 @@ class Worker(multiprocessing.Process):
     def run(self) -> None:
         while RUNNING:
             try:
-                self.logger.info("task_queue->get")
                 task = self.task_queue.get()
                 kwargs, task_id, src, task_type = task
                 task_class = self.registry[task_type]
@@ -54,8 +53,8 @@ class Worker(multiprocessing.Process):
                     task_class.forked = True
                 task_class.mock(task_id=task_id, src=src, wid=self.worker_id)
                 self.execute(task_class, kwargs["args"], kwargs["kwargs"])
-            except Exception as e:
-                self.logger.error(f"processing status failed: {e}")
+            except:
+                self.logger.error(f"processing status failed: \n{traceback.format_exc()}")
             finally:
                 self.done()
 
