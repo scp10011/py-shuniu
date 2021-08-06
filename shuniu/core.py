@@ -42,6 +42,7 @@ class Shuniu:
         self.log_queue = multiprocessing.Queue()
         self.done_queue = multiprocessing.Queue()
         self.logger = set_logging("Shuniu", **kwargs)
+        self.worker_logger = set_logging("Worker", **kwargs)
 
     def kill_worker(self, eid, *args, **kwargs):
         for worker_id, task_id in self.worker_future.items():
@@ -123,7 +124,7 @@ class Shuniu:
         while 1:
             with contextlib.suppress(Exception):
                 item, args, kwargs = self.log_queue.get()
-                getattr(self.logger, item)(*args, **kwargs)
+                getattr(self.worker_logger, item)(*args, **kwargs)
 
     def done_processing(self):
         while 1:
@@ -150,11 +151,9 @@ class Shuniu:
             self.rpc.ack(task["tid"], False, True)
         while self.__running__:
             worker_id = self.pre_request.get()
-            self.logger.info(f"recv pre_request: {worker_id}")
             while 1:
                 try:
                     task = self.rpc.consume(worker_id)
-                    self.logger.info(f"consume [{worker_id}] {task}")
                 except IOError:
                     self.logger.error("Retry after connection loss...")
                     time.sleep(2)
