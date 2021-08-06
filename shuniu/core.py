@@ -30,7 +30,6 @@ class Shuniu:
         self.rpc = API(**conn_obj, **kwargs)
         self.rpc.login()
         self.rpc.get_task_list()
-        self.task_registered_map: Dict[int, Task] = {}
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
         self.pre_request = queue.Queue()
         for i in range(self.conf["concurrency"]):
@@ -57,8 +56,14 @@ class Shuniu:
             future.cancel()
 
     def get_task_option(self, name):
-        if name in self.task_registered_map:
-            return self.task_registered_map[name].option
+        if name in self.worker.task_registered_map:
+            return self.worker.task_registered_map[name].option
+        else:
+            raise NameError(f"{name} not registered")
+
+    def get_task_class(self, name):
+        if name in self.worker.task_registered_map:
+            return self.worker.task_registered_map[name]
         else:
             raise NameError(f"{name} not registered")
 
@@ -115,7 +120,7 @@ class Shuniu:
 
 [tasks]"""
         )
-        for tid, task in self.task_registered_map.items():
+        for tid, task in self.worker.task_registered_map.items():
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.option.ignore_result}")
 
     def task_over(self, future, task_class, task_id, wid, start_time, task_name, src):
@@ -211,7 +216,7 @@ class Shuniu:
                         self.perform[wid] = task_id
                         self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
                         function = functools.partial(self.worker.run, task=task, wid=wid)
-                        task_class = self.task_registered_map[task_type]
+                        task_class = self.get_task_class(task_name)
                         future = pool.schedule(function, args=kwargs["args"], kwargs=kwargs["kwargs"],
                                                timeout=task_class.option.timeout)
                         self.worker_future[task_id] = future
