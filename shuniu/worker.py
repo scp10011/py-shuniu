@@ -28,8 +28,16 @@ class Worker(multiprocessing.Process):
         self.task_queue = task_queue
         self.done_queue = done_queue
         self.log_queue = log_queue
-        self.logger = LogSender(log_queue, self.worker_id)
+        # self.logger = LogSender(log_queue, self.worker_id)
         self.fork()
+        self.__logger__ = None
+
+    @property
+    def logger(self):
+        if not self.__logger__:
+            self.__logger__ = multiprocessing.get_logger()
+            self.__logger__.name = "worker"
+        return self.__logger__
 
     def fork(self):
         fork_session = self.rpc.new_session()
@@ -63,10 +71,10 @@ class Worker(multiprocessing.Process):
             error = "".join(traceback.format_exception(*exc_info))
             if any(isinstance(e, ex) for ex in task.option.autoretry_for):
                 self.rpc.ack(task.task_id, retry=True)
-                self.logger.exception("autoretry exception", exc_info=exc_info)
+                self.logger.exception("autoretry exception")
             else:
                 self.rpc.ack(task.task_id, fail=True)
-                self.logger.exception("unknown exception", exc_info=exc_info)
+                self.logger.exception("unknown exception")
             if not task.option.ignore_result:
                 self.rpc.set(
                     task.task_id,
