@@ -23,6 +23,8 @@ def initializer():
 
 @Singleton
 class Shuniu:
+    master = None
+
     def __init__(self, app: str, rpc_server: str, **kwargs):
         self.app = app
         self.rpc_server = rpc_server
@@ -139,7 +141,9 @@ class Shuniu:
 
     def new_worker(self, worker_id, pre_request):
         pre_request.put(worker_id)
-        task_queue, log_queue, done_queue = [multiprocessing.Queue() for _ in range(3)]
+        if not self.master:
+            self.master = multiprocessing.Manager()
+        task_queue, log_queue, done_queue = [self.master.Queue() for _ in range(3)]
         worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, done_queue, log_queue)
         self.worker_pool[worker_id] = (worker, task_queue, done_queue, log_queue)
         threading.Thread(target=self.done_processing, args=(done_queue, pre_request, worker_id)).start()
