@@ -117,6 +117,7 @@ class Shuniu:
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.option.ignore_result}")
 
     def stop(self):
+        self.logger.info("Close order received")
         self.__running__ = False
 
     def log_processing(self):
