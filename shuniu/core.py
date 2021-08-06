@@ -130,9 +130,12 @@ class Shuniu:
 
     def done_processing(self):
         while self.__running__:
-            done = self.done_queue.get()
-            self.perform[done] = None
-            self.pre_request.put(done)
+            try:
+                done = self.done_queue.get()
+                self.perform[done] = None
+                self.pre_request.put(done)
+            except Exception:
+                self.logger.exception("done_processing exception")
 
     def start(self):
         self.log_queue = multiprocessing.Queue()
@@ -148,7 +151,7 @@ class Shuniu:
             worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, self.done_queue, self.log_queue)
             self.worker_pool[worker_id] = (worker, task_queue)
             worker.start()
-        threading_pool.append(threading.Thread(target=self.done_processing))
+        threading_pool.append(threading.Thread(target=self.done_processing,))
         threading_pool.append(threading.Thread(target=self.log_processing))
         threading_pool.append(threading.Thread(target=self.daemon))
         if self.conf["worker_enable_remote_control"]:
