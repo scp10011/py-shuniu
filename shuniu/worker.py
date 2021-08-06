@@ -31,13 +31,6 @@ class Worker(multiprocessing.Process):
         self.logger = LogSender(log_queue, self.worker_id)
         self.fork()
 
-    # @property
-    # def logger(self):
-    #     if not self.__logger__:
-    #         self.__logger__ = multiprocessing.get_logger()
-    #         self.__logger__.name = "worker"
-    #     return self.__logger__
-
     def fork(self):
         fork_session = self.rpc.new_session()
         fork_session.cookies = self.rpc.__api__.cookies.copy()

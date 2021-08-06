@@ -188,8 +188,7 @@ class Shuniu:
         for worker_id, (worker, task_queue) in self.worker_pool.items():
             self.logger.info(f"Terminate the process: {worker_id}")
             task_queue.close()
-            worker.terminate()
-            worker.join()
+            worker.close()
 
 
 def urlparse(uri) -> Dict:
