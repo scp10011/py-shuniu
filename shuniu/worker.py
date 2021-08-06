@@ -16,7 +16,10 @@ class LogSender:
     def __getattr__(self, item):
         def processor(*args, **kwargs):
             kwargs = {**kwargs, "extra": {"wid": self.wid}}
-            self.queue.put((item, args, kwargs))
+            try:
+                self.queue.put((item, args, kwargs))
+            except:
+                traceback.print_exc()
 
         return processor
 
