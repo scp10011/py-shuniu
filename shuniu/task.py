@@ -112,8 +112,7 @@ class Task:
     def on_success(self):
         pass
 
-    def __call__(self, task_id, src, wid, args, kwargs):
-        self.mock(task_id, src, wid)
+    def __call__(self, args, kwargs):
         if self.option.bind:
             return self.func(self, *args, **kwargs)
         else:

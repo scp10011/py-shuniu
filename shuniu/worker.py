@@ -64,7 +64,7 @@ class Worker(multiprocessing.Process):
         start_time = time.time()
         self.logger.info(f"Start {task.name}[{task.task_id}]")
         try:
-            result = task(*args, **kwargs)
+            result = task(args, kwargs)
             self.rpc.ack(task.task_id)
         except Exception as e:
             exc_info = sys.exc_info()
