@@ -23,6 +23,10 @@ def initializer():
 
 @Singleton
 class Shuniu:
+    log_queue = None
+    done_queue = None
+    pre_request = None
+
     def __init__(self, app: str, rpc_server: str, **kwargs):
         self.app = app
         self.rpc_server = rpc_server
@@ -32,17 +36,12 @@ class Shuniu:
         self.rpc.get_task_list()
         self.conf = {k: kwargs.get(k, v) for k, v in ShuniuDefaultConf.items()}
         self.registry_map: Dict[int, Task] = {}
-        self.pre_request = queue.Queue()
-        for i in range(self.conf["concurrency"]):
-            self.pre_request.put(i)
         self.control = {1: self.kill_worker}
         self.state = {}
         self.perform = {}
         self.worker_future = {}
         self.__running__ = True
         self.worker_pool = {}
-        self.log_queue = multiprocessing.Queue()
-        self.done_queue = multiprocessing.Queue()
         self.logger = set_logging("shuniu", **kwargs)
 
     def kill_worker(self, eid, *args, **kwargs):
@@ -137,6 +136,11 @@ class Shuniu:
             self.pre_request.put(done)
 
     def start(self):
+        self.log_queue = multiprocessing.Queue()
+        self.done_queue = multiprocessing.Queue()
+        self.pre_request = queue.Queue()
+        for i in range(self.conf["concurrency"]):
+            self.pre_request.put(i)
         threading_pool = []
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         self.print_banners()
