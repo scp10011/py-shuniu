@@ -124,9 +124,11 @@ class Shuniu:
 
     def log_processing(self):
         while self.__running__:
-            with contextlib.suppress(Exception):
+            try:
                 item, args, kwargs = self.log_queue.get()
                 getattr(self.logger, item)(*args, **kwargs)
+            except Exception:
+                self.logger.exception("log_processing exception")
 
     def done_processing(self):
         while self.__running__:
@@ -151,7 +153,7 @@ class Shuniu:
             worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, self.done_queue, self.log_queue)
             self.worker_pool[worker_id] = (worker, task_queue)
             worker.start()
-        threading_pool.append(threading.Thread(target=self.done_processing,))
+        threading_pool.append(threading.Thread(target=self.done_processing, ))
         threading_pool.append(threading.Thread(target=self.log_processing))
         threading_pool.append(threading.Thread(target=self.daemon))
         if self.conf["worker_enable_remote_control"]:
