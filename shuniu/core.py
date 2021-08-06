@@ -129,7 +129,7 @@ class Shuniu:
         while 1:
             done = self.done_queue.get()
             self.perform[done] = None
-            self.pre_queue.put(done)
+            self.pre_request.put(done)
 
     def start(self):
         globals().update({p: __import__(p) for p in self.conf["imports"]})
