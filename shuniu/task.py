@@ -1,3 +1,5 @@
+import logging
+import multiprocessing
 from typing import Dict, Any, Tuple
 
 
@@ -13,32 +15,48 @@ class Signature:
         return self.rpc.broadcast(self.name, *args, **kwargs)
 
 
-class Task:
-    task_id = None
-    wid = None
-    src = None
+class LogSender:
+    def __init__(self, log_queue: multiprocessing.Queue):
+        self.queue = log_queue
 
-    def __init__(
-            self,
-            app: "Shuniu",
-            name: str,
-            func: type(abs),
-            conf: Dict,
-            bind: bool = False,
-            autoretry_for: Tuple[Exception] = None,
-            ignore_result=None,
-            serialization=None,
-            compression=None,
-            timeout=3600,
-            **kwargs,
-    ):
-        if kwargs:
-            app.logger.warning(f"Unknown parameter: {kwargs}")
-        self.name = name
-        self.app = app
-        self.func = func
+    def __getattr__(self, item):
+        def processor(*args, **kwargs):
+            self.queue.put((item, args, kwargs))
+
+        return processor
+
+
+class TaskApp:
+    def __init__(self, rpc, log_queue):
+        self.app = "worker"
+        self.rpc = rpc
+        self.__sender__ = LogSender(log_queue)
+
+    def signature(self, name: str) -> Signature:
+        return Signature(self.rpc, name)
+
+    @property
+    def logger(self) -> logging.Logger:
+        return self.__sender__
+
+
+class TaskOption:
+    autoretry_for: Tuple[Exception] = None
+    ignore_result = None
+    serialization = None
+    compression = None
+    timeout = 3600
+    bind: bool = False
+
+    def __init__(self, conf,
+                 autoretry_for: Tuple[Exception] = None,
+                 bind=True,
+                 ignore_result=None,
+                 serialization=None,
+                 compression=None,
+                 timeout=3600,
+                 **kwargs):
         self.bind = bind
-        self.conf = conf
         self.timeout = timeout
         if isinstance(ignore_result, bool):
             self.ignore_result = ignore_result
@@ -47,6 +65,29 @@ class Task:
         self.serialization = serialization
         self.compression = compression
         self.autoretry_for = autoretry_for or ()
+        self.unknown = kwargs
+
+
+class Task:
+    task_id = None
+    wid = None
+    src = None
+
+    def __init__(
+            self,
+            app: TaskApp,
+            name: str,
+            func: type(abs),
+            conf: Dict,
+            **kwargs,
+    ):
+        self.name = name
+        self.app = app
+        self.func = func
+        self.conf = conf
+        self.option = TaskOption(**kwargs)
+        if self.option.unknown:
+            app.logger.warning(f"Unknown parameter: {self.option.unknown}")
         self.forked = False
 
     def __init_socket__(self):
@@ -77,8 +118,9 @@ class Task:
     def on_success(self):
         pass
 
-    def run(self, *args, **kwargs) -> Any:
-        if self.bind:
+    def __call__(self, task_id, src, wid, args, kwargs):
+        self.mock(task_id, src, wid)
+        if self.option.bind:
             return self.func(self, *args, **kwargs)
         else:
             return self.func(*args, **kwargs)

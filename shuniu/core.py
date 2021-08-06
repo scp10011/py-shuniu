@@ -6,7 +6,6 @@ import logging
 import traceback
 import functools
 import threading
-import resource
 import urllib.parse
 import queue
 import multiprocessing
@@ -14,23 +13,11 @@ import multiprocessing
 from concurrent.futures import TimeoutError
 
 from typing import Dict
-from cgroups import Cgroup
 from pebble import ProcessPool, ProcessExpired
 
-from shuniu.task import Signature, Task
+from shuniu.task import Task, TaskApp
 from shuniu.api import shuniuRPC, EmptyData
 from shuniu.tools import Singleton, WorkerLogFilter
-
-
-class TaskApp:
-    def __init__(self, app, rpc, loglevel):
-        self.app = app
-        self.rpc = rpc
-        level = logging.getLevelName(loglevel)
-        self.logger = set_logging("Shuniu[worker]", level)
-
-    def signature(self, name: str) -> "Signature":
-        return Signature(self.rpc, name)
 
 
 @Singleton
@@ -66,6 +53,12 @@ class Shuniu:
             self.logger.info(f"Terminate task: {eid}")
             future.cancel()
 
+    def get_task_option(self, name):
+        if name in self.task_registered_map:
+            return self.task_registered_map[name].option
+        else:
+            raise NameError(f"{name} not registered")
+
     def get_stats(self, *args, **kwargs):
         return {"history": self.state, "run": self.perform}
 
@@ -85,7 +78,7 @@ class Shuniu:
         else:
             worker_base = Task
         self.task_registered_map[type_id] = worker_base(
-            app=TaskApp(self.app, self.rpc, self.logger.level),
+            app=TaskApp(self.rpc, self.logger.level),
             name=name,
             func=func,
             conf=self.conf,
@@ -122,7 +115,7 @@ class Shuniu:
         for tid, task in self.task_registered_map.items():
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.ignore_result}")
 
-    def task_over(self, future, worker_class, task_id, wid, start_time, task_name, src):
+    def task_over(self, future, task_class, task_id, wid, start_time, task_name, src):
         self.worker_future.pop(task_id)
         self.perform[wid] = None
         runner_time = time.time() - start_time
@@ -130,54 +123,62 @@ class Shuniu:
             try:
                 result = future.result() or {}
                 self.rpc.ack(task_id)
-                worker_class.on_success()
+                task_class.on_success()
                 self.logger.info(
                     f"Task {task_name}[{task_id}] succeeded in {runner_time}: {result}",
                     extra={"wid": wid},
                 )
-                if not worker_class.ignore_result:
+                if not task_class.ignore_result:
                     self.rpc.set(
                         task_id,
                         src,
                         payload=result,
-                        serialization=worker_class.serialization,
-                        compression=worker_class.compression,
+                        serialization=task_class.serialization,
+                        compression=task_class.compression,
                     )
             except TimeoutError:
                 self.logger.exception("Task {task_name}[{task_id}] failure in {runner_time}: Timeout Kill exception",
                                       extra={"wid": wid})
                 self.rpc.ack(task_id, retry=True)
-                worker_class.on_failure(*sys.exc_info())
+                task_class.on_failure(*sys.exc_info())
             except ProcessExpired:
                 self.logger.exception("Task {task_name}[{task_id}] failure in {runner_time}: Manual kill exception",
                                       extra={"wid": wid})
                 self.rpc.ack(task_id, fail=True)
-                worker_class.on_failure(*sys.exc_info())
+                task_class.on_failure(*sys.exc_info())
             except Exception as e:
                 exc_info = sys.exc_info()
-                if any(isinstance(e, ex) for ex in worker_class.autoretry_for):
+                if any(isinstance(e, ex) for ex in task_class.autoretry_for):
                     self.logger.exception("Autoretry exception", extra={"wid": wid})
                     self.rpc.ack(task_id, retry=True)
                 else:
                     self.logger.exception("Unknown exception", extra={"wid": wid})
                     self.rpc.ack(task_id, fail=True)
-                worker_class.on_failure(*exc_info)
+                task_class.on_failure(*exc_info)
                 self.logger.info(
                     f"Task {task_name}[{task_id}] failure in {runner_time}",
                     extra={"wid": wid},
                 )
-                if not worker_class.ignore_result:
+                if not task_class.ignore_result:
                     error = "".join(traceback.format_exception(*exc_info))
                     self.rpc.set(
                         task_id,
                         src,
                         payload={"__traceback__": error},
-                        serialization=worker_class.serialization,
-                        compression=worker_class.compression,
+                        serialization=task_class.serialization,
+                        compression=task_class.compression,
                     )
         except Exception:
             self.logger.exception("Unknown exception")
         self.pre_request.put(wid)
+
+    def worker(self, task_type, task_id, wid, start_time, task_name, src, *args, **kwargs):
+        worker_class = self.task_registered_map[task_type]
+        if not worker_class.forked:
+            worker_class.__init_socket__()
+            worker_class.forked = True
+        worker_class.mock(task_id, src, wid)
+        worker_class(*args, **kwargs)
 
     def stop(self):
         self.__running__ = False
@@ -213,16 +214,13 @@ class Shuniu:
                         self.state[task_name] = self.state.setdefault(task_name, 0) + 1
                         self.perform[wid] = task_id
                         self.logger.info(f"Start {self.rpc.task_map[task_type]}[{task_id}]", extra={"wid": wid})
-                        worker_class = self.task_registered_map[task_type]
-                        if not worker_class.forked:
-                            worker_class.__init_socket__()
-                            worker_class.forked = True
-                        worker_class.mock(task_id, src, wid)
-                        future = pool.schedule(worker_class.run, args=kwargs["args"], kwargs=kwargs["kwargs"],
-                                               timeout=worker_class.timeout)
+                        function = functools.partial(self.worker, task=task, wid=wid)
+                        task_class = self.task_registered_map[task_type]
+                        future = pool.schedule(function, args=kwargs["args"], kwargs=kwargs["kwargs"],
+                                               timeout=task_class.option.timeout)
                         self.worker_future[task_id] = future
                         callback = functools.partial(self.task_over, **{
-                            "worker_class": self.task_registered_map[task_type],
+                            "task_class": task_class,
                             "task_id": task_id,
                             "src": src,
                             "task_name": task_name,
