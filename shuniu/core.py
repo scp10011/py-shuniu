@@ -150,6 +150,7 @@ class Shuniu:
             self.rpc.ack(task["tid"], False, True)
         while self.__running__:
             worker_id = self.pre_request.get()
+            self.logger.info(f"recv pre_request: {worker_id}")
             while 1:
                 try:
                     task = self.rpc.consume(worker_id)
@@ -179,7 +180,6 @@ class Shuniu:
                 break
             time.sleep(1)
         self.logger.info("Completely leave the ownership mission")
-
 
 
 def urlparse(uri) -> Dict:
