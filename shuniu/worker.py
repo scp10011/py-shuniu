@@ -24,6 +24,7 @@ class LogSender:
 
 def handle_signal(*args):
     global RUNNING
+    print("RUNNING is False")
     RUNNING = False
 
 
