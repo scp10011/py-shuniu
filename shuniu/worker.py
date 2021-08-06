@@ -14,11 +14,10 @@ Event = namedtuple("Event", ["type", "id", "args", "kwargs"])
 
 
 class Worker:
-    def __init__(self, rpc: API, conf, log_queue):
+    def __init__(self, rpc: API, conf):
         self.run_id = None
         self.rpc = rpc
         self.conf = conf
-        self.log_queue = log_queue
         self.task_registered_map: Dict[int, Task] = {}
 
     def registered(self, func: type(abs), name, type_id, base=None, **kwargs):
@@ -27,7 +26,7 @@ class Worker:
         else:
             worker_base = Task
         self.task_registered_map[type_id] = worker_base(
-            app=TaskApp(self.rpc, self.log_queue),
+            app=TaskApp(self.rpc, self.conf["loglevel"]),
             name=name,
             func=func,
             conf=self.conf,

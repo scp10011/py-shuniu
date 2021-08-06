@@ -27,17 +27,21 @@ class LogSender:
 
 
 class TaskApp:
-    def __init__(self, rpc, log_queue):
+    def __init__(self, rpc, log_level):
         self.app = "worker"
         self.rpc = rpc
-        self.__sender__ = LogSender(log_queue)
+        self.__logger__ = None
+        self.log_level = log_level
 
     def signature(self, name: str) -> Signature:
         return Signature(self.rpc, name)
 
     @property
     def logger(self) -> logging.Logger:
-        return self.__sender__
+        if not self.__logger__:
+            self.__logger__ = logging.getLogger("Worker")
+            self.__logger__.setLevel(self.log_level)
+        return self.log_level
 
 
 class TaskOption:
