@@ -15,6 +15,7 @@ from concurrent.futures import TimeoutError
 from typing import Dict
 from pebble import ProcessPool, ProcessExpired
 
+from shuniu.task import Task
 from shuniu.worker import Worker
 from shuniu.api import API, EmptyData
 from shuniu.tools import Singleton, WorkerLogFilter
@@ -109,7 +110,7 @@ class Shuniu:
         for tid, task in self.worker.task_registered_map.items():
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.option.ignore_result}")
 
-    def task_over(self, future, task_class, task_id, wid, start_time, task_name, src):
+    def task_over(self, future, task_class: Task, task_id, wid, start_time, task_name, src):
         self.worker_future.pop(task_id)
         self.perform[wid] = None
         runner_time = time.time() - start_time
@@ -122,13 +123,13 @@ class Shuniu:
                     f"Task {task_name}[{task_id}] succeeded in {runner_time}: {result}",
                     extra={"wid": wid},
                 )
-                if not task_class.ignore_result:
+                if not task_class.option.ignore_result:
                     self.rpc.set(
                         task_id,
                         src,
                         payload=result,
-                        serialization=task_class.serialization,
-                        compression=task_class.compression,
+                        serialization=task_class.option.serialization,
+                        compression=task_class.option.compression,
                     )
             except TimeoutError:
                 self.logger.exception("Task {task_name}[{task_id}] failure in {runner_time}: Timeout Kill exception",
@@ -142,7 +143,7 @@ class Shuniu:
                 task_class.on_failure(*sys.exc_info())
             except Exception as e:
                 exc_info = sys.exc_info()
-                if any(isinstance(e, ex) for ex in task_class.autoretry_for):
+                if any(isinstance(e, ex) for ex in task_class.option.autoretry_for):
                     self.logger.exception("Autoretry exception", extra={"wid": wid})
                     self.rpc.ack(task_id, retry=True)
                 else:
@@ -153,14 +154,14 @@ class Shuniu:
                     f"Task {task_name}[{task_id}] failure in {runner_time}",
                     extra={"wid": wid},
                 )
-                if not task_class.ignore_result:
+                if not task_class.option.ignore_result:
                     error = "".join(traceback.format_exception(*exc_info))
                     self.rpc.set(
                         task_id,
                         src,
                         payload={"__traceback__": error},
-                        serialization=task_class.serialization,
-                        compression=task_class.compression,
+                        serialization=task_class.option.serialization,
+                        compression=task_class.option.compression,
                     )
         except Exception:
             self.logger.exception("Unknown exception")
