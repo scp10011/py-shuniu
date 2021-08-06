@@ -148,7 +148,7 @@ class Shuniu:
             task_name = self.rpc.task_map[task["type_id"]]
             self.logger.info(f"Unidentified worker[{task['wid']}] task-> {task_name}[{task['tid']}]")
             self.rpc.ack(task["tid"], False, True)
-        while 1:
+        while self.__running__:
             worker_id = self.pre_request.get()
             while 1:
                 try:
@@ -173,6 +173,13 @@ class Shuniu:
                 except Exception:
                     continue
                 break
+        self.logger.info("Receiving and receiving directives")
+        while 1:
+            if not any(self.perform.values()):
+                break
+            time.sleep(1)
+        self.logger.info("Completely leave the ownership mission")
+
 
 
 def urlparse(uri) -> Dict:
