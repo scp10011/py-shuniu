@@ -181,19 +181,12 @@ class Shuniu:
                     continue
                 break
         self.logger.info("Receiving and receiving directives")
+        self.logger.info(f"Work unfinished: {self.perform}")
         while 1:
             if not any(self.perform.values()):
                 break
             time.sleep(1)
-        self.log_queue.close()
-        self.done_queue.close()
-        self.logger.info("Completely leave the ownership mission")
-        [i.join() for i in threading_pool]
-        for worker_id, (worker, task_queue) in self.worker_pool.items():
-            self.logger.info(f"Terminate the process: {worker_id}")
-            task_queue.close()
-            worker.terminate()
-            worker.join()
+        os.kill(os.getpid(), signal.SIGKILL)
 
 
 def urlparse(uri) -> Dict:
