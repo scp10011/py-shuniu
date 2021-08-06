@@ -51,16 +51,6 @@ class Shuniu:
             else:
                 self.logger.info(f"Terminate task does not exist: {eid}")
 
-    def get_task_option(self, name):
-        return self.get_task_class(name).option
-
-    def get_task_class(self, name):
-        type_id = self.rpc.registered(name)
-        if type_id in self.worker.task_registered_map:
-            return self.worker.task_registered_map[type_id]
-        else:
-            raise NameError(f"{name} not registered")
-
     def get_stats(self, *args, **kwargs):
         return {"history": self.state, "run": self.perform}
 
@@ -123,7 +113,7 @@ class Shuniu:
 
 [tasks]"""
         )
-        for tid, task in self.worker.task_registered_map.items():
+        for tid, task in self.registry_map.items():
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.option.ignore_result}")
 
     def stop(self):
