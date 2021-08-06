@@ -154,6 +154,7 @@ class Shuniu:
             while 1:
                 try:
                     task = self.rpc.consume(worker_id)
+                    self.logger.info(f"consume [{worker_id}] {task}")
                 except IOError:
                     self.logger.error("Retry after connection loss...")
                     time.sleep(2)
