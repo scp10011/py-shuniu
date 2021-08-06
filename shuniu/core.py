@@ -75,7 +75,8 @@ class Shuniu:
             name = f"{self.app}.{func.__name__}"
         elif name.count(".") != 1:
             raise ValueError("task name does not meet specifications")
-        self.worker.registered(func, name, base, **kwargs)
+        type_id = self.rpc.registered(name)
+        self.worker.registered(func, name, type_id, base, **kwargs)
 
     def log_processor(self):
         while self.__running__:
