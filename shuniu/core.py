@@ -61,7 +61,7 @@ class Shuniu:
         return functools.partial(self.registered, *args, **kwargs)
 
     def daemon(self):
-        while self.__running__:
+        while self.__running__ and not time.sleep(1):
             for worker_id, (worker, stdin) in self.worker_pool.items():
                 with contextlib.suppress(Exception):
                     worker.join(timeout=0)
@@ -72,7 +72,6 @@ class Shuniu:
                                         self.log_queue)
                         self.worker_pool[worker_id] = (worker, task_queue)
                         worker.start()
-            time.sleep(1)
 
     def registered(self, func: type(abs), name=None, base=None, **kwargs):
         if not name:
@@ -138,7 +137,7 @@ class Shuniu:
     def start(self):
         self.log_queue = multiprocessing.Queue()
         self.done_queue = multiprocessing.Queue()
-        self.pre_request = queue.Queue()
+        self.pre_request = multiprocessing.Queue()
         for i in range(self.conf["concurrency"]):
             self.pre_request.put(i)
         threading_pool = []
