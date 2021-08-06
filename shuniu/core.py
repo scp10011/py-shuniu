@@ -46,8 +46,8 @@ class Shuniu:
         for worker_id, task_id in self.worker_future.items():
             with contextlib.suppress(Exception):
                 if task_id == eid:
-                    self.logger.info(f"Terminate task: {eid}")
                     os.kill(self.worker_pool[worker_id][0].pid, signal.SIGKILL)
+                    self.logger.info(f"Terminate task: {eid}")
                 else:
                     self.logger.info(f"Terminate task does not exist: {eid}")
 
@@ -62,12 +62,14 @@ class Shuniu:
     def daemon(self, pre_request):
         while self.__running__ and not time.sleep(1):
             for worker_id, (worker, *queue) in self.worker_pool.items():
-                with contextlib.suppress(Exception):
+                try:
                     worker.join(timeout=0)
                     if not worker.is_alive():
                         [i.close() for i in queue]
                         self.logger.error(f"worker {worker_id} is down..")
                         self.new_worker(worker_id, pre_request)
+                except Exception:
+                    self.logger.exception("daemon")
 
     def registered(self, func: type(abs), name=None, base=None, **kwargs):
         if not name:
