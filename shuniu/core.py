@@ -138,12 +138,11 @@ class Shuniu:
         log_queue = multiprocessing.Queue()
         done_queue = multiprocessing.Queue()
         pre_request = multiprocessing.Queue()
-        for i in range(self.conf["concurrency"]):
-            self.pre_request.put(i)
         threading_pool = []
         globals().update({p: __import__(p) for p in self.conf["imports"]})
         self.print_banners()
         for worker_id in range(self.conf["concurrency"]):
+            pre_request.put(worker_id)
             task_queue = multiprocessing.Queue()
             worker = Worker(self.registry_map, self.rpc, worker_id, task_queue, done_queue, log_queue)
             self.worker_pool[worker_id] = (worker, task_queue)
@@ -159,7 +158,7 @@ class Shuniu:
             self.logger.info(f"Unidentified worker[{task['wid']}] task-> {task_name}[{task['tid']}]")
             self.rpc.ack(task["tid"], False, True)
         while self.__running__:
-            worker_id = self.pre_request.get()
+            worker_id = pre_request.get()
             while 1:
                 try:
                     task = self.rpc.consume(worker_id)
