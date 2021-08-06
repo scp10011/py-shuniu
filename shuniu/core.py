@@ -16,7 +16,7 @@ from typing import Dict
 from pebble import ProcessPool, ProcessExpired
 
 from shuniu.task import Task, TaskApp
-from shuniu.api import shuniuRPC, EmptyData
+from shuniu.api import API, EmptyData
 from shuniu.tools import Singleton, WorkerLogFilter
 
 
@@ -26,7 +26,7 @@ class Shuniu:
         self.app = app
         self.rpc_server = rpc_server
         conn_obj = urlparse(rpc_server)
-        self.rpc = shuniuRPC(**conn_obj, **kwargs)
+        self.rpc = API(**conn_obj, **kwargs)
         self.rpc.login()
         self.rpc.get_task_list()
         self.task_registered_map: Dict[int, Task] = {}

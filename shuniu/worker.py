@@ -6,7 +6,7 @@ from collections import namedtuple
 from typing import Dict
 
 from shuniu.task import TaskApp, Task, TaskOption
-from shuniu.api import shuniuRPC
+from shuniu.api import API
 
 Request = namedtuple("Request", ["type", "id", "worker", "src", "args", "kwargs"])
 Result = namedtuple("Result", ["type", "id", "worker", "src", "result", "exception", "option"])
@@ -15,7 +15,7 @@ Event = namedtuple("Event", ["type", "id", "args", "kwargs"])
 
 class Worker:
     def __init__(self,
-                 rpc: shuniuRPC,
+                 rpc: API,
                  conf,
                  task_queue: multiprocessing.Queue,
                  result_queue: multiprocessing.Queue,

@@ -2,13 +2,11 @@ import os
 import re
 import bz2
 import gzip
-import time
 import zlib
 import uuid
 import json
 import enum
 import pickle
-import hashlib
 import binascii
 import urllib.parse
 
@@ -20,7 +18,7 @@ import requests.utils
 import requests.adapters
 
 
-class shuniuRPC:
+class API:
     logged_in = False
 
     def __init__(
@@ -370,7 +368,7 @@ class EmptyData(ResourceWarning):
 
 
 class AsyncResult:
-    def __init__(self, task_id: str, rpc: shuniuRPC):
+    def __init__(self, task_id: str, rpc: API):
         self.rpc = rpc
         self.task_id = task_id
 
@@ -393,19 +391,6 @@ class AsyncResult:
 
     def __repr__(self):
         return f"<AsyncResult {self.task_id} at {hex(id(self))}>"
-
-
-def __seq__():
-    sid = globals().get("__increasing__cycle__", 1)
-    globals()["__increasing__cycle__"] = 1 if sid >= 0xFFFF else sid + 1
-    return sid
-
-
-def generate_distributed_id(node_id: str, role: str) -> str:
-    type_id = hashlib.md5(f"{os.getgid()}-{role}".encode()).digest()[:2]
-    prefix = binascii.a2b_hex(node_id.replace("-", ""))[:4]
-    ts = time.time_ns().to_bytes(8, "big")
-    return str(uuid.UUID(bytes=prefix + type_id + __seq__().to_bytes(2, "big") + ts))
 
 
 def decode_payload(payload: str, payload_type: int) -> Dict:
