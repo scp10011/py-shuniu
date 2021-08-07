@@ -3,10 +3,32 @@ import sys
 import time
 import traceback
 import multiprocessing
+from typing import Dict
 
 from shuniu.task import Task
 
 RUNNING = True
+
+
+def task_timeout(timeout=3600):
+    def decor(func):
+        def timeout_handle(signum, frame):
+            raise TimeoutError("Time out...")
+
+        def kill_handle(signum, frame):
+            raise ChildProcessError
+
+        def run(*args, **kwargs):
+            signal.signal(signal.SIGALRM, timeout_handle)
+            signal.signal(signal.SIGUSR1, kill_handle)
+            signal.alarm(timeout)
+            r = func(*args, **kwargs)
+            signal.alarm(0)
+            return r
+
+        return run
+
+    return decor
 
 
 class LogSender:
@@ -31,7 +53,7 @@ class Worker(multiprocessing.Process):
         super().__init__()
         self.rpc = rpc
         self.worker_id = worker_id
-        self.registry = registry
+        self.registry: Dict[int, Task] = registry
         self.task_queue = task_queue
         self.done_queue = done_queue
         self.log_queue = log_queue
@@ -63,7 +85,8 @@ class Worker(multiprocessing.Process):
         start_time = time.time()
         self.logger.info(f"Start {task.name}[{task.task_id}]")
         try:
-            result = task(args, kwargs)
+            func = task_timeout(task.option.timeout)(task)
+            result = func(args, kwargs)
             self.rpc.ack(task.task_id)
         except Exception as e:
             exc_info = sys.exc_info()
