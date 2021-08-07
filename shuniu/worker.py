@@ -9,14 +9,20 @@ from shuniu.task import Task
 
 RUNNING = True
 
+class UserTimeoutError(TimeoutError):
+    pass
+
+class UserKillError(Exception):
+    pass
+
 
 def task_timeout(timeout=3600):
     def decor(func):
         def timeout_handle(signum, frame):
-            raise TimeoutError("timeout")
+            raise UserTimeoutError("timeout")
 
         def kill_handle(signum, frame):
-            raise ChildProcessError("user kill")
+            raise UserKillError("user kill")
 
         def run(*args, **kwargs):
             signal.signal(signal.SIGALRM, timeout_handle)
@@ -88,10 +94,14 @@ class Worker(multiprocessing.Process):
             func = task_timeout(task.option.timeout)(task)
             result = func(args, kwargs)
             self.rpc.ack(task.task_id)
+        except UserKillError:
+            exc_info = sys.exc_info()
+            self.logger.info(f"Task {task.name}[{task.task_id}] termination in {time.time() - start_time}")
+            task.on_failure(*exc_info)
         except Exception as e:
             exc_info = sys.exc_info()
             error = "".join(traceback.format_exception(*exc_info))
-            if any(isinstance(e, ex) for ex in task.option.autoretry_for):
+            if not isinstance(e, UserTimeoutError) and any(isinstance(e, ex) for ex in task.option.autoretry_for):
                 self.rpc.ack(task.task_id, retry=True)
                 self.logger.error("autoretry exception\n" + traceback.format_exc())
             else:
