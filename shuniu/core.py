@@ -151,7 +151,7 @@ class Shuniu:
         while self.__running__:
             try:
                 worker_id = done_queue.get()
-                self.worker_timeout[worker_id] = (None, None, None, None, None)
+                # self.worker_timeout[worker_id] = (None, None, None, None, None)
                 self.perform[worker_id] = None
                 pre_request.put(worker_id)
             except (ValueError, OSError):

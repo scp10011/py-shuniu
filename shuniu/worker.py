@@ -13,10 +13,10 @@ RUNNING = True
 def task_timeout(timeout=3600):
     def decor(func):
         def timeout_handle(signum, frame):
-            raise TimeoutError("Time out...")
+            raise TimeoutError("timeout")
 
         def kill_handle(signum, frame):
-            raise ChildProcessError
+            raise ChildProcessError("user kill")
 
         def run(*args, **kwargs):
             signal.signal(signal.SIGALRM, timeout_handle)
