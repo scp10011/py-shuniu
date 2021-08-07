@@ -175,7 +175,7 @@ class Shuniu:
         log_queue = manager.Queue()
         for worker_id in range(self.conf["concurrency"]):
             self.new_worker(worker_id, manager.Queue(), done_queue, log_queue, pre_request)
-        threading_pool.append(threading.Thread(target=self.time_processing))
+        # threading_pool.append(threading.Thread(target=self.time_processing))
         threading_pool.append(threading.Thread(target=self.daemon, args=(pre_request,)))
         threading_pool.append(threading.Thread(target=self.log_processing, args=(log_queue,)))
         threading_pool.append(threading.Thread(target=self.done_processing, args=(done_queue, pre_request,)))
