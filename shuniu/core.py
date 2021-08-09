@@ -127,7 +127,7 @@ class Shuniu:
             for worker_id, (worker, task_queue, *_) in self.worker_pool.items():
                 with contextlib.suppress(Exception):
                     os.kill(worker.pid, signal.SIGTERM)
-                self.logger.info(f"Send stop command[{worker_id}]]")
+                self.logger.info(f"Send stop command PID:{worker.pud} [worker-{worker_id}] SIGTERM")
                 task_queue.put(None)
 
     def log_processing(self, log_queue):

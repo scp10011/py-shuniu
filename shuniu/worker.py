@@ -86,6 +86,7 @@ class Worker(multiprocessing.Process):
                 self.logger.error(f"processing status failed: \n{traceback.format_exc()}")
             finally:
                 self.done()
+        self.logger.info("worker-{self.worker_id} exit")
 
     def execute(self, task: Task, args, kwargs):
         start_time = time.time()
