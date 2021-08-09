@@ -246,7 +246,7 @@ class API:
                     "Requests Error: {}".format(r.ok and r.json().get("code", "") or r.status_code)
                 ) from None
 
-    def set(self, task_id: str, src: str, payload: Any, serialization=None, compression=None):
+    def set(self, task_id: str, src: str, payload: Any, serialization=None, compression=None, **kwargs):
         payload, payload_type = encode_payload(
             payload,
             coding=serialization or self.conf["serialization"],

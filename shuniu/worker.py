@@ -94,18 +94,15 @@ class Worker(multiprocessing.Process):
         try:
             func = task_timeout(task.option.timeout)(task)
             result = func(args, kwargs)
-            with contextlib.suppress(Exception):
-                self.rpc.ack(task.task_id)
+            self.rpc.ack(task.task_id)
         except ExitError as e:
             self.logger.info(f"Task {task.name}[{task.task_id}] termination in {time.time() - start_time}")
-            with contextlib.suppress(Exception):
-                self.rpc.ack(task.task_id)
+            self.rpc.ack(task.task_id)
             raise e
         except UserKillError:
             exc_info = sys.exc_info()
             self.logger.info(f"Task {task.name}[{task.task_id}] termination in {time.time() - start_time}")
-            with contextlib.suppress(Exception):
-                self.rpc.ack(task.task_id)
+            self.rpc.ack(task.task_id)
             with contextlib.suppress(Exception):
                 task.on_failure(*exc_info)
         except Exception as e:
@@ -114,24 +111,20 @@ class Worker(multiprocessing.Process):
             with contextlib.suppress(Exception):
                 task.on_failure(*exc_info)
             if not isinstance(e, UserTimeoutError) and any(isinstance(e, ex) for ex in task.option.autoretry_for):
-                with contextlib.suppress(Exception):
-                    self.rpc.ack(task.task_id, retry=True)
+                self.rpc.ack(task.task_id, retry=True)
                 error = "recoverable exception\n" + error
             else:
-                with contextlib.suppress(Exception):
-                    self.rpc.ack(task.task_id, fail=True)
+                self.rpc.ack(task.task_id, fail=True)
                 error = "unrecoverable exception\n" + error
             self.logger.info(f"Task {task.name}[{task.task_id}] failure in {time.time() - start_time}\n" + error)
             if not task.option.ignore_result:
-                with contextlib.suppress(Exception):
-                    self.rpc.set(task.task_id, task.src, payload={"__traceback__": error}, **task.option)
+                self.rpc.set(task.task_id, task.src, payload={"__traceback__": error}, **task.option)
         else:
             with contextlib.suppress(Exception):
                 task.on_success()
             result = {} if isinstance(result, type(None)) else result
             if not task.option.ignore_result:
-                with contextlib.suppress(Exception):
-                    self.rpc.set(task.task_id, task.src, payload=result, **task.option)
+                self.rpc.set(task.task_id, task.src, payload=result, **task.option)
             self.logger.info(f"Task {task.name}[{task.task_id}] succeeded in {time.time() - start_time}: {result}")
 
     def done(self):
