@@ -20,7 +20,7 @@ def task_timeout(timeout=3600):
 
         def run(*args, **kwargs):
             signal.signal(signal.SIGALRM, timeout_handle)
-            signal.signal(signal.SIGCHLD, kill_handle)
+            signal.signal(signal.SIGUSR2, kill_handle)
             signal.signal(signal.SIGTERM, exit_handle)
             signal.signal(signal.SIGUSR1, stop_handle)
             signal.alarm(timeout)

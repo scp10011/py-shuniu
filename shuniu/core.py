@@ -47,7 +47,7 @@ class Shuniu:
         for worker_id, task_id in self.worker_future.items():
             with contextlib.suppress(Exception):
                 if task_id == eid:
-                    os.kill(self.worker_pool[worker_id][0].pid, signal.SIGCHLD)
+                    os.kill(self.worker_pool[worker_id][0].pid, signal.SIGUSR2)
                     self.logger.info(f"Terminate task: {eid}")
                 else:
                     self.logger.info(f"Terminate task does not exist: {eid}")
