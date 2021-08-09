@@ -137,6 +137,8 @@ class Shuniu:
                 getattr(self.logger, item)(*args, **kwargs)
             except (ValueError, OSError):
                 break
+            except ExitError:
+                pass
             except Exception:
                 self.logger.exception("log_processing exception")
 
@@ -148,6 +150,8 @@ class Shuniu:
                 pre_request.put(worker_id)
             except (ValueError, OSError):
                 break
+            except ExitError:
+                pass
             except Exception:
                 self.logger.exception("done_processing exception")
 
