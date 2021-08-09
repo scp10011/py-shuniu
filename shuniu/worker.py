@@ -7,29 +7,22 @@ import multiprocessing
 from typing import Dict
 
 from shuniu.task import Task
+from signal_handle import timeout_handle, kill_handle, exit_handle, ExitError, UserKillError, UserTimeoutError
 
 RUNNING = True
 
 
-class UserTimeoutError(TimeoutError):
-    pass
-
-
-class UserKillError(Exception):
-    pass
-
-
 def task_timeout(timeout=3600):
     def decor(func):
-        def timeout_handle(signum, frame):
-            raise UserTimeoutError("timeout")
-
-        def kill_handle(signum, frame):
-            raise UserKillError("user kill")
+        def stop_handle(signum, frame):
+            global RUNNING
+            RUNNING = False
 
         def run(*args, **kwargs):
             signal.signal(signal.SIGALRM, timeout_handle)
-            signal.signal(signal.SIGUSR1, kill_handle)
+            signal.signal(signal.SIGCHLD, kill_handle)
+            signal.signal(signal.SIGTERM, exit_handle)
+            signal.signal(signal.SIGUSR1, stop_handle)
             signal.alarm(timeout)
             r = func(*args, **kwargs)
             signal.alarm(0)
@@ -78,6 +71,8 @@ class Worker(multiprocessing.Process):
         while RUNNING:
             try:
                 task = self.task_queue.get()
+                if not task:
+                    break
                 kwargs, task_id, src, task_type = task
                 task_class = self.registry[task_type]
                 if not task_class.forked:
@@ -85,6 +80,8 @@ class Worker(multiprocessing.Process):
                     task_class.forked = True
                 task_class.mock(task_id=task_id, src=src, wid=self.worker_id)
                 self.execute(task_class, kwargs["args"], kwargs["kwargs"])
+            except ExitError:
+                break
             except:
                 self.logger.error(f"processing status failed: \n{traceback.format_exc()}")
             finally:
@@ -98,6 +95,11 @@ class Worker(multiprocessing.Process):
             result = func(args, kwargs)
             with contextlib.suppress(Exception):
                 self.rpc.ack(task.task_id)
+        except ExitError as e:
+            self.logger.info(f"Task {task.name}[{task.task_id}] termination in {time.time() - start_time}")
+            with contextlib.suppress(Exception):
+                self.rpc.ack(task.task_id)
+            raise e
         except UserKillError:
             exc_info = sys.exc_info()
             self.logger.info(f"Task {task.name}[{task.task_id}] termination in {time.time() - start_time}")

@@ -16,6 +16,7 @@ from shuniu.task import Task, TaskApp
 from shuniu.worker import Worker
 from shuniu.api import API, EmptyData
 from shuniu.tools import Singleton, WorkerLogFilter
+from shuniu.signal_handle import exit_handle, ExitError
 
 
 def initializer():
@@ -37,16 +38,16 @@ class Shuniu:
         self.state = {}
         self.perform = {}
         self.worker_future = {}
-        # self.worker_timeout = {}
         self.__running__ = True
         self.worker_pool: Dict[int, tuple[Worker, queue.Queue, queue.Queue, queue.Queue]] = {}
         self.logger = set_logging("shuniu", **kwargs)
+        signal.signal(signal.SIGUSR1, exit_handle)
 
     def kill_worker(self, eid, *args, **kwargs):
         for worker_id, task_id in self.worker_future.items():
             with contextlib.suppress(Exception):
                 if task_id == eid:
-                    os.kill(self.worker_pool[worker_id][0].pid, signal.SIGUSR1)
+                    os.kill(self.worker_pool[worker_id][0].pid, signal.SIGCHLD)
                     self.logger.info(f"Terminate task: {eid}")
                 else:
                     self.logger.info(f"Terminate task does not exist: {eid}")
@@ -117,25 +118,13 @@ class Shuniu:
 
     def stop(self):
         self.logger.info("Close order received")
-        if not self.__running__:
-            os.kill(os.getpid(), signal.SIGKILL)
         self.__running__ = False
-
-    # def time_processing(self):
-    #     while self.__running__ and not time.sleep(1):
-    #         for worker_id, (timeout, task_type, task_id, src, worker_id) in self.worker_timeout.items():
-    #             if timeout and timeout < time.time():
-    #                 os.kill(self.worker_pool[worker_id][0].pid, signal.SIGUSR1)
-    #                 self.logger.info(f"Task execution time is too long: {task_id}")
-    #                 task_class = self.registry_map[task_type]
-    #                 task_class.mock(task_id, src, worker_id)
-    #                 try:
-    #                     raise TimeoutError(f"Task execution time is too long: {task_id}")
-    #                 except TimeoutError:
-    #                     with contextlib.suppress(Exception):
-    #                         task_class.on_failure(*sys.exc_info())
-    #                 self.worker_timeout[worker_id] = (None, None, None, None, None)
-    #                 task_class.mock(None, None, None)
+        os.kill(os.getpid(), signal.SIGUSR1)
+        for worker_id, (worker, task_queue, *_) in self.worker_pool.items():
+            with contextlib.suppress(Exception):
+                os.kill(worker.pid, signal.SIGTERM)
+            self.logger.info(f"Send stop command[{worker_id}]]")
+            task_queue.put(None)
 
     def log_processing(self, log_queue):
         while self.__running__:
@@ -151,7 +140,6 @@ class Shuniu:
         while self.__running__:
             try:
                 worker_id = done_queue.get()
-                # self.worker_timeout[worker_id] = (None, None, None, None, None)
                 self.perform[worker_id] = None
                 pre_request.put(worker_id)
             except (ValueError, OSError):
@@ -186,44 +174,46 @@ class Shuniu:
             task_name = self.rpc.task_map[task["type_id"]]
             self.logger.info(f"Unidentified worker[{task['wid']}] task-> {task_name}[{task['tid']}]")
             self.rpc.ack(task["tid"], False, True)
-        while self.__running__:
-            worker_id = pre_request.get()
-            while 1:
-                try:
-                    task = self.rpc.consume(worker_id)
-                except IOError:
-                    self.logger.error("Retry after connection loss...")
-                    time.sleep(2)
-                    continue
-                except Exception:
-                    self.logger.exception("Failed to get task")
-                    continue
-                if task is EmptyData:
-                    continue
-                try:
-                    kwargs, task_id, src, task_type = task
-                    if task_type not in self.registry_map:
-                        self.rpc.ack(task_id, fail=True)
-                        self.logger.error(f"task is not registered: {task_type}")
+        with contextlib.suppress(ExitError):
+            while self.__running__:
+                worker_id = pre_request.get()
+                while 1:
+                    try:
+                        task = self.rpc.consume(worker_id)
+                    except ExitError:
+                        raise ExitError
+                    except IOError:
+                        self.logger.error("Retry after connection loss...")
+                        time.sleep(2)
                         continue
-                    self.worker_future[worker_id] = task_id
-                    task_name = self.rpc.task_map[task_type]
-                    self.logger.info(f"Received task to worker-{worker_id}: {task_name}[{task_id}]")
-                    self.state[task_name] = self.state.setdefault(task_name, 0) + 1
-                    self.perform[worker_id] = task_id
-                    # end_time = self.registry_map[task_type].option.timeout + time.time()
-                    # self.worker_timeout[worker_id] = (end_time, task_type, task_id, src, worker_id)
-                    self.worker_pool[worker_id][1].put(task)
-                except Exception:
-                    continue
-                break
+                    except Exception:
+                        self.logger.exception("Failed to get task")
+                        continue
+                    if task is EmptyData:
+                        continue
+                    try:
+                        kwargs, task_id, src, task_type = task
+                        if task_type not in self.registry_map:
+                            self.rpc.ack(task_id, fail=True)
+                            self.logger.error(f"task is not registered: {task_type}")
+                            continue
+                        self.worker_future[worker_id] = task_id
+                        task_name = self.rpc.task_map[task_type]
+                        self.logger.info(f"Received task to worker-{worker_id}: {task_name}[{task_id}]")
+                        self.state[task_name] = self.state.setdefault(task_name, 0) + 1
+                        self.perform[worker_id] = task_id
+                        self.worker_pool[worker_id][1].put(task)
+                    except Exception:
+                        continue
+                    break
         self.logger.info("Receiving and receiving directives")
         self.logger.info(f"Work unfinished: {self.perform}")
         while 1:
             if not any(self.perform.values()):
                 break
             time.sleep(1)
-        os.kill(os.getpid(), signal.SIGKILL)
+        manager.shutdown()
+        manager.join()
 
 
 def urlparse(uri) -> Dict:
