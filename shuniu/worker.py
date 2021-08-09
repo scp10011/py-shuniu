@@ -96,12 +96,12 @@ class Worker(multiprocessing.Process):
             result = func(args, kwargs)
             self.rpc.ack(task.task_id)
         except ExitError as e:
-            self.logger.info(f"Task {task.name}[{task.task_id}] termination in {time.time() - start_time}")
+            self.logger.info(f"Task {task.name}[{task.task_id}] node stop termination in {time.time() - start_time}")
             self.rpc.ack(task.task_id)
             raise e
         except UserKillError:
             exc_info = sys.exc_info()
-            self.logger.info(f"Task {task.name}[{task.task_id}] termination in {time.time() - start_time}")
+            self.logger.info(f"Task {task.name}[{task.task_id}] user termination in {time.time() - start_time}")
             self.rpc.ack(task.task_id)
             with contextlib.suppress(Exception):
                 task.on_failure(*exc_info)
