@@ -129,6 +129,8 @@ class Shuniu:
                     os.kill(worker.pid, signal.SIGTERM)
                 self.logger.info(f"Send stop command PID:{worker.pud} [worker-{worker_id}] SIGTERM")
                 task_queue.put(None)
+            time.sleep(5)
+            os.kill(os.getpid(), signal.SIGKILL)
 
     def log_processing(self, log_queue):
         while 1:
@@ -221,8 +223,6 @@ class Shuniu:
             if not any(self.perform.values()):
                 break
             time.sleep(1)
-        [worker.terminate() for (worker, *_) in self.worker_pool.values()]
-        [worker.join() for (worker, *_) in self.worker_pool.values()]
         manager.shutdown()
         manager.join()
 
