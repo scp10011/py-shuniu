@@ -221,7 +221,8 @@ class Shuniu:
             if not any(self.perform.values()):
                 break
             time.sleep(1)
-        time.sleep(2)
+        [worker.terminate() for (worker, *_) in self.worker_pool.values()]
+        [worker.join() for (worker, *_) in self.worker_pool.values()]
         manager.shutdown()
         manager.join()
 
