@@ -131,7 +131,7 @@ class Shuniu:
                 task_queue.put(None)
 
     def log_processing(self, log_queue):
-        while self.__running__:
+        while 1:
             try:
                 item, args, kwargs = log_queue.get()
                 getattr(self.logger, item)(*args, **kwargs)
@@ -141,7 +141,7 @@ class Shuniu:
                 self.logger.exception("log_processing exception")
 
     def done_processing(self, done_queue, pre_request):
-        while self.__running__:
+        while 1:
             try:
                 worker_id = done_queue.get()
                 self.perform[worker_id] = None
@@ -167,7 +167,6 @@ class Shuniu:
         log_queue = manager.Queue()
         for worker_id in range(self.conf["concurrency"]):
             self.new_worker(worker_id, manager.Queue(), done_queue, log_queue, pre_request)
-        # threading_pool.append(threading.Thread(target=self.time_processing))
         threading_pool.append(threading.Thread(target=self.daemon, args=(pre_request,)))
         threading_pool.append(threading.Thread(target=self.log_processing, args=(log_queue,)))
         threading_pool.append(threading.Thread(target=self.done_processing, args=(done_queue, pre_request,)))
@@ -207,6 +206,8 @@ class Shuniu:
                         self.state[task_name] = self.state.setdefault(task_name, 0) + 1
                         self.perform[worker_id] = task_id
                         self.worker_pool[worker_id][1].put(task)
+                    except ExitError:
+                        raise ExitError
                     except Exception:
                         continue
                     break
@@ -216,6 +217,7 @@ class Shuniu:
             if not any(self.perform.values()):
                 break
             time.sleep(1)
+        [worker.join() for (worker, *_) in self.worker_pool.values()]
         manager.shutdown()
         manager.join()
 
