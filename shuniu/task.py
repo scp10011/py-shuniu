@@ -15,7 +15,6 @@ class Signature:
         return self.rpc.broadcast(self.name, *args, **kwargs)
 
 
-
 class TaskApp:
     def __init__(self, rpc, log_level):
         self.app = "worker"
@@ -60,6 +59,20 @@ class TaskOption:
         self.compression = compression
         self.autoretry_for = autoretry_for or ()
         self.unknown = kwargs
+
+    def keys(self):
+        return ["ignore_result", "compression", "serialization", "autoretry_for", "bind", "timeout", *self.unknown]
+
+    def items(self):
+        return {**self, **self.unknown}
+
+    def values(self):
+        return [getattr(self, i) for i in self.keys()] + list(self.unknown.values())
+
+    def __getitem__(self, item):
+        if item in self.unknown:
+            return self.unknown[item]
+        return getattr(self, item)
 
 
 class Task:
