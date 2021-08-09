@@ -7,7 +7,7 @@ import multiprocessing
 from typing import Dict
 
 from shuniu.task import Task
-from signal_handle import timeout_handle, kill_handle, exit_handle, ExitError, UserKillError, UserTimeoutError
+from shuniu.signal_handle import timeout_handle, kill_handle, exit_handle, ExitError, UserKillError, UserTimeoutError
 
 RUNNING = True
 
