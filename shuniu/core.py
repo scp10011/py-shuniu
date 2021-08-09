@@ -117,14 +117,18 @@ class Shuniu:
             print(f".> {self.rpc.task_map[tid]} -- ignore_result: {task.option.ignore_result}")
 
     def stop(self):
-        self.logger.info("Close order received")
-        self.__running__ = False
-        os.kill(os.getpid(), signal.SIGUSR1)
-        for worker_id, (worker, task_queue, *_) in self.worker_pool.items():
-            with contextlib.suppress(Exception):
-                os.kill(worker.pid, signal.SIGTERM)
-            self.logger.info(f"Send stop command[{worker_id}]]")
-            task_queue.put(None)
+        if not self.__running__:
+            self.logger.info("Force quit")
+            os.kill(os.getpid(), signal.SIGKILL)
+        else:
+            self.logger.info("Close order received")
+            self.__running__ = False
+            os.kill(os.getpid(), signal.SIGUSR1)
+            for worker_id, (worker, task_queue, *_) in self.worker_pool.items():
+                with contextlib.suppress(Exception):
+                    os.kill(worker.pid, signal.SIGTERM)
+                self.logger.info(f"Send stop command[{worker_id}]]")
+                task_queue.put(None)
 
     def log_processing(self, log_queue):
         while self.__running__:
