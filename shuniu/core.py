@@ -12,7 +12,7 @@ import urllib.parse
 import multiprocessing
 
 from typing import Dict
-from shuniu.task import Task, TaskApp
+from shuniu.task import Task, TaskApp, Signature
 from shuniu.worker import Worker
 from shuniu.api import API, EmptyData
 from shuniu.tools import Singleton, WorkerLogFilter
@@ -85,6 +85,9 @@ class Shuniu:
             worker_base = Task
         app = TaskApp(self.rpc, self.conf["loglevel"])
         self.registry_map[type_id] = worker_base(app=app, name=name, func=func, conf=self.conf, **kwargs)
+
+    def signature(self, name: str) -> "Signature":
+        return Signature(self.rpc, name)
 
     def manager(self, kws, instruction):
         self.control[instruction](*kws["args"], **kws["kwargs"])
